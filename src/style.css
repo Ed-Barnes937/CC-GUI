@@ -2731,13 +2731,19 @@ body.resizing .panel-resizer {
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
   font-size: 13px;
 }
 
+/* Selection reads on every theme: bg-inset alone sits too close to bg-elevated on
+   low-contrast palettes (Nord, Everforest), so an accent outline carries the cue
+   independent of surface. Outline (not a thick border) keeps layout stable and
+   stays within the craft floor. */
 .theme-modal-row.selected {
   background: var(--bg-inset);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .theme-swatches {
@@ -2755,16 +2761,29 @@ body.resizing .panel-resizer {
 
 .theme-modal-label {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--text);
 }
 
 .theme-modal-tag {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: 10px;
   flex-shrink: 0;
   color: var(--text-dim);
   border: 1px solid var(--border-strong);
+}
+
+/* Muted footer naming the live-preview contract (browse repaints, commit saves). */
+.theme-modal-hint {
+  flex-shrink: 0;
+  padding: 6px 8px 2px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
 .theme-modal-check {
@@ -2777,7 +2796,7 @@ body.resizing .panel-resizer {
 .theme-follow-row {
   margin-bottom: 2px;
   border-bottom: 1px solid var(--border);
-  border-radius: 6px 6px 0 0;
+  border-radius: 7px 7px 0 0;
 }
 
 .theme-follow-toggle {
