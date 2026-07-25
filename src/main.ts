@@ -1284,13 +1284,17 @@ function openFileExplorer(): void {
   });
 }
 
-// Cmd+E toggles the file explorer. Capture phase + Cmd (not Ctrl — Ctrl+E is the
-// terminal's move-to-end-of-line) so it opens even while a terminal is focused,
-// the same technique as Cmd+W / Cmd+1..9 above.
+// Cmd+E toggles the file explorer. On Linux/Windows (.deb/.AppImage), which have
+// no Cmd, Ctrl+E is also accepted so keyboard users still have an open path; on
+// macOS Ctrl+E stays reserved for the terminal's move-to-end-of-line. Capture
+// phase so it opens even while a terminal is focused, the same technique as
+// Cmd+W / Cmd+1..9 above.
 window.addEventListener(
   "keydown",
   (e) => {
-    if (e.key !== "e" || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const accel = (e.metaKey && !e.ctrlKey) || (e.ctrlKey && !e.metaKey && !isMac);
+    if (e.key !== "e" || !accel || e.altKey || e.shiftKey) return;
     e.preventDefault();
     e.stopPropagation();
     if (isExplorerOpen()) {
