@@ -17,7 +17,8 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     "Sidebar",
     [
       ["⋯ menu", "Add project, scan directory, delete merged-PR sessions"],
-      ["Path input", "Type to autocomplete dirs (Tab completes, ↑/↓ pick, Enter drills in/commits, Browse… opens picker)"],
+      ["Path input", "Type to autocomplete directories: ↑/↓ pick, Tab completes, Enter drills in or commits"],
+      ["Browse…", "Open the native folder picker"],
       ["GROUP BY", "Segmented control: switch sidebar grouping (Sections / Projects / Status)"],
       ["Drag row → section", "Move a session to a section (drop on In Progress to unpin)"],
       ["● (yellow)", "Unread: agent finished while you were away"],
@@ -84,11 +85,25 @@ overlay.id = "help-overlay";
 overlay.classList.add("hidden");
 const box = document.createElement("div");
 box.className = "help-box";
+box.setAttribute("role", "dialog");
+box.setAttribute("aria-modal", "true");
+box.setAttribute("aria-labelledby", "help-title");
+// Focusable so opening can move focus into the dialog: this both anchors the
+// focus trap and makes the scrollable box reachable by keyboard (arrows / space
+// / PageDown scroll the focused container).
+box.tabIndex = -1;
+const header = document.createElement("div");
+header.className = "help-header";
 const title = document.createElement("h2");
+title.id = "help-title";
 title.textContent = "CC-GUI help";
-box.appendChild(title);
-// Sections flow into two masonry-style columns (CSS column-count); each section
-// is break-avoid so its heading + table stay together.
+const esc = document.createElement("span");
+esc.className = "palette-esc";
+esc.textContent = "esc";
+header.append(title, esc);
+box.appendChild(header);
+// Sections flow into a deterministic two-column grid (row-major reading order:
+// left-to-right, top-to-bottom).
 const columns = document.createElement("div");
 columns.className = "help-columns";
 box.appendChild(columns);
@@ -137,22 +152,46 @@ export function setHelpKeybindings(rows: [string, string][]): void {
 overlay.appendChild(box);
 document.body.appendChild(overlay);
 
+// The element focused before the overlay opened, restored on close so keyboard
+// users land back where they were.
+let lastFocused: HTMLElement | null = null;
+
+function openHelp(): void {
+  lastFocused = document.activeElement as HTMLElement | null;
+  overlay.classList.remove("hidden");
+  box.focus();
+}
+
+function closeHelp(): void {
+  overlay.classList.add("hidden");
+  lastFocused?.focus?.();
+  lastFocused = null;
+}
+
 export function toggleHelp(): void {
-  overlay.classList.toggle("hidden");
+  if (overlay.classList.contains("hidden")) openHelp();
+  else closeHelp();
 }
 
 overlay.addEventListener("click", (e) => {
-  if (e.target === overlay) toggleHelp();
+  if (e.target === overlay) closeHelp();
 });
 
 // Opening is bound through the config's show_help action (main.ts); these
 // only close an open overlay, so they can't double-fire with that binding.
 document.addEventListener("keydown", (e) => {
   if (overlay.classList.contains("hidden")) return;
+  // Trap Tab: the dialog has no interactive children, so keep focus on the box
+  // rather than letting it escape to the obscured page behind the overlay.
+  if (e.key === "Tab") {
+    e.preventDefault();
+    box.focus();
+    return;
+  }
   const target = e.target as HTMLElement;
   const inInput =
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target.closest(".xterm") !== null;
-  if ((e.key === "?" && !inInput) || e.key === "Escape") toggleHelp();
+  if ((e.key === "?" && !inInput) || e.key === "Escape") closeHelp();
 });

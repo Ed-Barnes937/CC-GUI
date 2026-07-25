@@ -2006,18 +2006,32 @@ body {
   padding: 18px 22px;
 }
 
-.help-box h2 {
-  font-size: 15px;
+/* Programmatic focus anchors the trap and keyboard scroll; the scrim already
+   marks the dialog as the active surface, so no ring is needed on the box. */
+.help-box:focus {
+  outline: none;
+}
+
+.help-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
+.help-box h2 {
+  font-size: 15px;
+}
+
 .help-columns {
-  column-count: 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 28px;
+  align-items: start;
 }
 
 .help-section {
-  break-inside: avoid;
   margin-bottom: 14px;
 }
 
