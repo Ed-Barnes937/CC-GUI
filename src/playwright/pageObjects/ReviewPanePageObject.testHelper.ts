@@ -63,8 +63,39 @@ export class ReviewPanePageObject extends AppPageObject {
     });
   }
 
+  /** Send staged comments: the button arms on the first press and only sends on
+   *  the second — clear both to confirm the irreversible apply. */
   apply(): Promise<void> {
-    return this.step("apply", () => this.applyButton.click());
+    return this.step("apply", async () => {
+      await this.applyButton.click(); // arm
+      await expect(this.applyButton).toHaveText(/^Confirm/);
+      await this.applyButton.click(); // confirm the send
+    });
+  }
+
+  /** First press of Apply only — arms the send without confirming it. */
+  armApply(): Promise<void> {
+    return this.step("armApply", () => this.applyButton.click());
+  }
+
+  /** Transient toasts (on <body>): the "sent" confirmation and error notices. */
+  toasts(): Locator {
+    return this.page.locator("#toast-stack .toast");
+  }
+
+  /** Press a bare key against the review (e.g. "j", "Enter", "Escape"). */
+  pressKey(key: string): Promise<void> {
+    return this.step(`pressKey: ${key}`, () => this.page.keyboard.press(key));
+  }
+
+  /** The keyboard line cursor's ring row. */
+  cursorLine(): Locator {
+    return this.diff.locator(".diff-line.cursor");
+  }
+
+  /** The open comment composer's textarea. */
+  diffTextarea(): Locator {
+    return this.diff.locator("textarea");
   }
 
   applyLocator(): Locator {
