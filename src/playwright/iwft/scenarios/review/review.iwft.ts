@@ -34,9 +34,43 @@ test("apply sends staged comments and returns to the workspace", async ({ review
   // A successful apply clears the staged comment and closes the review,
   // returning to the workspace; the fake recorded the applied comment.
   await expect(review.paneLocator()).toBeHidden();
+  // The panel tears down, so the "sent" acknowledgement lives on as a toast.
+  await expect(review.toasts()).toHaveText(["Sent 1 comment(s) to the agent"]);
   const stored = await review.storedComments(SESSION_ID);
   expect(stored).toHaveLength(1);
   expect(stored[0]).toMatchObject({ comment: "nit", status: "applied" });
+});
+
+test("apply arms on the first press and confirms on the second", async ({ review }) => {
+  await review.selectLine("beta new");
+  await review.writeComment("nit");
+
+  // First press only arms — nothing is sent yet.
+  await review.armApply();
+  await expect(review.applyLocator()).toHaveText("Confirm — send 1 comment");
+  await expect(review.paneLocator()).toBeVisible();
+  expect(await review.storedComments(SESSION_ID)).toMatchObject([{ status: "staged" }]);
+});
+
+test("an armed apply can be called off with Esc", async ({ review }) => {
+  await review.selectLine("beta new");
+  await review.writeComment("nit");
+
+  await review.armApply();
+  await expect(review.applyLocator()).toHaveText("Confirm — send 1 comment");
+
+  await review.pressKey("Escape");
+  // Disarmed: back to the resting label, panel still open, nothing sent.
+  await expect(review.applyLocator()).toHaveText("Apply 1 comment →");
+  await expect(review.paneLocator()).toBeVisible();
+});
+
+test("the diff is reviewable by keyboard: j moves a cursor, Enter opens the composer", async ({ review }) => {
+  await review.pressKey("j"); // drop the line cursor onto the first line
+  await expect(review.cursorLine()).toBeVisible();
+
+  await review.pressKey("Enter"); // open a comment for the cursor line
+  await expect(review.diffTextarea()).toBeVisible();
 });
 
 test("a comment can be deleted", async ({ review }) => {

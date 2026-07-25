@@ -8,6 +8,7 @@ import {
 } from "shiki/core";
 import { noTextAssist } from "./dom";
 import { makeResizable } from "./resize";
+import { toast } from "./toast";
 import { currentTheme, onThemeChange, type Theme } from "./theme";
 import {
   buildDraft,
@@ -217,15 +218,33 @@ let selection: { anchor: number; head: number } | null = null;
 let draftText = ""; // survives re-renders while extending the selection
 let applying = false;
 
+// Keyboard cursor: index into the current file's flat lines. Drives the
+// focus ring and the Enter/`c` "comment here" shortcut, so the diff is
+// reviewable without a mouse. Null until the first j/k or line click.
+let cursor: number | null = null;
+
+// Apply is irreversible (it hands the comments to the agent), so the button
+// arms on the first press and only sends on the second. Auto-disarms after a
+// short window so a stray click never leaves it primed.
+let armed = false;
+let armTimer: number | null = null;
+
+// The element focused before the review opened, so closing returns focus there
+// instead of dropping it to <body>.
+let restoreFocus: HTMLElement | null = null;
+
 export async function openReview(id: string, title: string): Promise<void> {
   sessionId = id;
+  restoreFocus = document.activeElement as HTMLElement | null;
   titleEl.textContent = title;
   baseEl.textContent = "";
   statusEl.textContent = "";
   clearSelection();
+  disarm();
   filesEl.innerHTML = "";
   diffEl.innerHTML = '<div class="review-empty">Loading…</div>';
   reviewEl.classList.remove("hidden");
+  reviewEl.focus(); // move focus into the dialog so keys and SR land here
   await refresh();
 }
 
@@ -239,7 +258,8 @@ async function refresh(): Promise<void> {
     diffEl.innerHTML = "";
     const err = document.createElement("div");
     err.className = "review-empty error";
-    err.textContent = `Failed to open review: ${e}`;
+    err.textContent = "Couldn't load this review. Try refreshing.";
+    err.title = String(e); // raw backend error on hover, not in the face
     diffEl.appendChild(err);
     return;
   }
@@ -291,12 +311,17 @@ export function closeReview(): void {
   sessionId = null;
   snapshot = null;
   clearSelection();
+  disarm();
   reviewEl.classList.add("hidden");
+  // Return focus to whatever opened the review (a session row action).
+  restoreFocus?.focus?.();
+  restoreFocus = null;
 }
 
 function clearSelection(): void {
   selection = null;
   draftText = "";
+  cursor = null;
 }
 
 function currentFile(): FileDiff | undefined {
@@ -317,7 +342,7 @@ async function toggleReviewed(path: string): Promise<void> {
   try {
     now = await invoke<boolean>("toggle_file_reviewed", { id: sessionId, path });
   } catch (e) {
-    statusEl.textContent = `mark failed: ${e}`;
+    toast("Couldn't update the reviewed mark.", "error", String(e));
     return;
   }
   if (now) reviewed.add(path);
@@ -566,7 +591,7 @@ async function deleteComment(commentId: string): Promise<void> {
   try {
     await invoke("delete_comment", { id: sessionId, commentId });
   } catch (e) {
-    statusEl.textContent = `delete failed: ${e}`;
+    toast("Couldn't delete the comment.", "error", String(e));
     return;
   }
   await refresh();
@@ -592,7 +617,7 @@ async function saveComment(lines: DiffLine[], comment: string): Promise<void> {
       comment: comment.trim(),
     });
   } catch (e) {
-    statusEl.textContent = `comment failed: ${e}`;
+    toast("Couldn't save the comment.", "error", String(e));
     return;
   }
   clearSelection();
@@ -715,6 +740,18 @@ function renderDiff(): void {
       const row = document.createElement("div");
       row.className = `diff-line diff-${line.origin}`;
       row.classList.toggle("selected", lineIdx >= selStart && lineIdx <= selEnd);
+      // Each line is an actionable target: focus lands the keyboard cursor here
+      // (roving tabindex — only the cursor line is tabbable) and Enter/`c`
+      // opens a comment for it.
+      row.setAttribute("role", "button");
+      const lineNo = line.new_lineno ?? line.old_lineno;
+      row.setAttribute(
+        "aria-label",
+        `Line ${lineNo ?? lineIdx + 1} — press Enter or C to comment`,
+      );
+      const isCursor = lineIdx === cursor;
+      row.tabIndex = isCursor ? 0 : -1;
+      row.classList.toggle("cursor", isCursor);
 
       const oldNo = document.createElement("span");
       oldNo.className = "lineno";
@@ -751,6 +788,7 @@ function renderDiff(): void {
         } else {
           selection = { anchor: lineIdx, head: lineIdx };
         }
+        cursor = lineIdx; // keep the keyboard cursor in step with the mouse
         renderDiff();
       });
       diffEl.appendChild(row);
@@ -779,6 +817,30 @@ function renderDiff(): void {
     const selLines = flatLines.slice(selStart, selEnd + 1);
     editorAnchorRow.after(renderCommentEditor(selLines));
   }
+}
+
+/** Move the keyboard line cursor by `delta` within the current file (clamped,
+ *  no wrap), re-render so the ring follows, and keep the cursor row focused and
+ *  in view. Initialises to the first/last line when no cursor is set yet. */
+function moveCursor(delta: number): void {
+  const file = currentFile();
+  if (!file) return;
+  const count = file.hunks.reduce((n, h) => n + h.lines.length, 0);
+  if (!count) return;
+  const from = cursor ?? (delta > 0 ? -1 : count);
+  cursor = Math.min(count - 1, Math.max(0, from + delta));
+  renderDiff();
+  const row = diffEl.querySelector<HTMLElement>(".diff-line.cursor");
+  row?.focus();
+  row?.scrollIntoView({ block: "nearest" });
+}
+
+/** Open the comment composer for the current cursor line (the keyboard twin of
+ *  clicking a line). No-op when the cursor is unset. */
+function openComposerAtCursor(): void {
+  if (cursor === null) return;
+  selection = { anchor: cursor, head: cursor };
+  renderDiff(); // the composer renders after the row and autofocuses its textarea
 }
 
 // ------------------------------------------------------------------ images
@@ -831,7 +893,8 @@ async function renderImageDiff(file: FileDiff, mime: string): Promise<void> {
     diffEl.innerHTML = "";
     const err = document.createElement("div");
     err.className = "review-empty error";
-    err.textContent = `Failed to load image: ${e}`;
+    err.textContent = "Couldn't load this image.";
+    err.title = String(e); // raw backend error on hover, not in the face
     diffEl.appendChild(err);
     return;
   }
@@ -945,10 +1008,45 @@ function renderApply(): void {
   }
   const pending = snapshot.comments.filter((c) => c.status !== "applied").length;
   applyBarEl.classList.toggle("hidden", pending === 0);
+  if (pending === 0) disarm();
   const noun = pending === 1 ? "comment" : "comments";
-  applySummaryEl.textContent = `${pending} ${noun} ready to send back to the agent`;
   applyEl.disabled = applying;
-  applyEl.textContent = applying ? "Applying…" : `Apply ${pending} ${noun} →`;
+  applyEl.classList.toggle("armed", armed && !applying);
+  if (applying) {
+    applySummaryEl.textContent = `Sending ${pending} ${noun} to the agent…`;
+    applyEl.textContent = "Sending…";
+  } else if (armed) {
+    applySummaryEl.textContent = "This sends the comments to the agent — press again to confirm, Esc to cancel.";
+    applyEl.textContent = `Confirm — send ${pending} ${noun}`;
+  } else {
+    applySummaryEl.textContent = `${pending} ${noun} ready to send back to the agent`;
+    applyEl.textContent = `Apply ${pending} ${noun} →`;
+  }
+}
+
+/** Arm the send on the first press; a second press within the window confirms.
+ *  Sending is irreversible, so this is the guard against an accidental apply. */
+function requestApply(): void {
+  if (!sessionId || applying) return;
+  if (!armed) {
+    armed = true;
+    if (armTimer !== null) clearTimeout(armTimer);
+    armTimer = window.setTimeout(disarm, 4000);
+    renderApply();
+    return;
+  }
+  disarm();
+  void applyComments();
+}
+
+function disarm(): void {
+  if (armTimer !== null) {
+    clearTimeout(armTimer);
+    armTimer = null;
+  }
+  if (!armed) return;
+  armed = false;
+  renderApply();
 }
 
 async function applyComments(): Promise<void> {
@@ -958,16 +1056,20 @@ async function applyComments(): Promise<void> {
   renderApply();
   try {
     const outcome = await invoke<ApplyOutcome>("apply_comments", { id: sessionId });
-    statusEl.textContent = describeOutcome(outcome);
     // Applying clears the staged comments and returns to the workspace; a
     // blocked outcome (drifted comments) stays open so the failure is visible.
     if (outcome.outcome === "applied") {
       applying = false;
+      // Confirm the send before teardown — a toast lives on <body>, so it
+      // survives closeReview() and stays readable after the panel is gone.
+      toast(describeOutcome(outcome));
       closeReview();
       return;
     }
+    statusEl.textContent = describeOutcome(outcome);
   } catch (e) {
-    statusEl.textContent = `apply failed: ${e}`;
+    statusEl.textContent = "Couldn't send the comments. Please try again.";
+    toast("Couldn't send the comments to the agent.", "error", String(e));
   }
   applying = false;
   await refresh();
@@ -975,14 +1077,60 @@ async function applyComments(): Promise<void> {
 
 document.querySelector("#review-close")!.addEventListener("click", closeReview);
 document.querySelector("#review-refresh")!.addEventListener("click", () => void refresh());
-applyEl.addEventListener("click", () => void applyComments());
+applyEl.addEventListener("click", requestApply);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || reviewEl.classList.contains("hidden")) return;
-  if (selection) {
+  // Unwind the most local state first: a primed Apply, then a line selection,
+  // then the panel itself.
+  if (armed) {
+    disarm();
+  } else if (selection) {
     clearSelection();
     renderDiff();
   } else {
     closeReview();
+  }
+});
+
+// The review fills the screen as a modal dialog, so Tab must cycle within it
+// rather than reaching the workspace behind. Wrap focus at both ends.
+reviewEl.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  const focusables = [
+    ...reviewEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), textarea, input, [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((el) => el.offsetParent !== null);
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || active === reviewEl)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+});
+
+// Keyboard review of the diff: j/k move a line cursor, Enter or `c` opens a
+// comment for the cursor line — a full mouse-free path to leaving a comment.
+document.addEventListener("keydown", (e) => {
+  if (reviewEl.classList.contains("hidden")) return;
+  const t = e.target as HTMLElement;
+  if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) return;
+  const file = currentFile();
+  if (!file || !file.hunks.length) return; // text diffs only (not images/stranded)
+  if (e.key === "j") {
+    e.preventDefault();
+    moveCursor(1);
+  } else if (e.key === "k") {
+    e.preventDefault();
+    moveCursor(-1);
+  } else if ((e.key === "Enter" || e.key === "c") && cursor !== null) {
+    e.preventDefault();
+    openComposerAtCursor();
   }
 });
 

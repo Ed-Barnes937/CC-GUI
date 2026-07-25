@@ -3730,7 +3730,9 @@ body.resizing .row-divider {
 .hunk-header {
   padding: 6px 12px;
   margin: 8px 0 2px;
-  color: var(--accent);
+  /* The @@ ranges are machine data, not an interaction — muted, so the accent
+     stays a scarce signal for selection, focus, and the line cursor. */
+  color: var(--text-muted);
   background: var(--bg-elevated);
 }
 
@@ -3783,6 +3785,13 @@ body.resizing .row-divider {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+/* Keyboard line cursor: the row/tab focus treatment — a 2px accent outline
+   drawn inside the row so it reads without shifting the dense diff. */
+.diff-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .diff-line.selected .line-content {
   color: var(--text);
 }
@@ -3829,6 +3838,30 @@ body.resizing .row-divider {
   cursor: default;
 }
 
+/* Primed for its confirming second press: a caution tone so the irreversible
+   send reads as "are you sure" before it fires. */
+.apply-btn.armed {
+  background: var(--warning);
+}
+
+/* One consistent focus ring across the review's controls — the 2px accent halo
+   already used by the image-comparison slider. */
+#review-close:focus-visible,
+#review-refresh:focus-visible,
+.apply-btn:focus-visible,
+.editor-save:focus-visible,
+.editor-cancel:focus-visible,
+.comment-delete:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* The review container is a -1 focus target (focus moves in on open); it should
+   not paint a ring of its own. */
+#review:focus {
+  outline: none;
+}
+
 .review-comment.editor textarea {
   width: 100%;
   background: var(--bg-inset);
@@ -3840,6 +3873,12 @@ body.resizing .row-divider {
   padding: 5px 8px;
   outline: none;
   resize: vertical;
+}
+
+/* The system's field-focus treatment: accent border plus a soft accent glow. */
+.review-comment.editor textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .editor-buttons {
