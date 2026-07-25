@@ -3546,6 +3546,13 @@ function renderAgentCard(s: SessionRow): HTMLDivElement {
   card.classList.toggle("selected", selectedId === s.id);
   boardCardRefs.set(s.id, card);
 
+  // The card is the primary keyboard target: a role=button tile in the board's
+  // roving-tabindex group (updateBoardRoving picks which card is tab-focusable;
+  // the arrow/Enter handler on #board-columns does the rest). Enter/Space attach.
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", `${s.title}, ${s.project_name}`);
+  card.tabIndex = -1;
+
   // Drag the card onto another section column to re-pin it. The move commits on
   // release over a column, so an Esc-cancelled drag is a no-op. The card's own
   // click/⋯/▸/± handlers still fire when the pointer doesn't move (no drag).
@@ -3587,7 +3594,9 @@ function renderAgentCard(s: SessionRow): HTMLDivElement {
   const name = document.createElement("span");
   name.className = "card-title";
   name.textContent = s.title;
-  name.title = `Branch: ${s.branch}`;
+  // The title truncates with an ellipsis, so its tooltip restores the full
+  // session name (the branch has its own tooltip on the subtitle below).
+  name.title = s.title;
   const project = document.createElement("span");
   project.className = "card-project";
   const square = document.createElement("span");
@@ -3616,7 +3625,13 @@ function renderAgentCard(s: SessionRow): HTMLDivElement {
   chip.classList.add("compact");
   const statusRow = document.createElement("div");
   statusRow.className = "card-status-row";
-  statusRow.appendChild(chip);
+  // Non-color cue that this card's terminal is the one docked below — shown by
+  // CSS only when the card is `.selected` (the board's docked session). Pairs
+  // with the accent outline so the docked state survives grayscale.
+  const docked = document.createElement("span");
+  docked.className = "card-docked";
+  docked.textContent = "▸ docked";
+  statusRow.append(chip, docked);
   card.appendChild(statusRow);
 
   // Branch line under the title — only when it diverges from the title (it's
@@ -3761,6 +3776,93 @@ function clearCardDropTargets(): void {
     c.classList.remove("card-drop-target");
   }
 }
+
+// ── Board keyboard navigation ──────────────────────────────────────────────
+// The board is a roving-tabindex group: exactly one card is tab-focusable, so
+// Tab lands on a card; arrows then move focus across cards and columns, and
+// Enter/Space attaches. Roving *focus* is distinct from *selection* — the
+// `.selected`/docked card (see selectRow) — so browsing the board never docks a
+// session until you press Enter.
+let boardFocusId: string | null = null;
+
+function boardCards(): HTMLDivElement[] {
+  return [...boardColumnsEl.querySelectorAll<HTMLDivElement>(".agent-card")];
+}
+
+/** Give exactly one card `tabIndex 0` — the docked card if visible, else the
+ *  last-focused card, else the first — so Tab enters the board on a sensible
+ *  card. Called after every column rebuild. */
+function updateBoardRoving(): void {
+  const cards = boardCards();
+  const chosen =
+    (selectedId ? boardCardRefs.get(selectedId) : undefined) ??
+    (boardFocusId ? boardCardRefs.get(boardFocusId) : undefined) ??
+    cards[0];
+  for (const c of cards) c.tabIndex = c === chosen ? 0 : -1;
+  boardFocusId = chosen?.dataset.id ?? boardFocusId;
+}
+
+/** Move roving focus to `card`, updating the tabindex so it stays the entry
+ *  point, then focus it. */
+function focusBoardCard(card: HTMLDivElement | undefined): void {
+  if (!card) return;
+  for (const c of boardCards()) c.tabIndex = c === card ? 0 : -1;
+  boardFocusId = card.dataset.id ?? null;
+  card.focus();
+}
+
+/** Focus the card nearest `rowIdx` in the first non-empty column found stepping
+ *  `dir` from `colIdx` (skips empty columns). */
+function focusAdjacentColumn(
+  cols: HTMLElement[],
+  colIdx: number,
+  dir: 1 | -1,
+  rowIdx: number,
+): void {
+  for (let i = colIdx + dir; i >= 0 && i < cols.length; i += dir) {
+    const cards = [...cols[i].querySelectorAll<HTMLDivElement>(".agent-card")];
+    if (cards.length) {
+      focusBoardCard(cards[Math.min(rowIdx, cards.length - 1)]);
+      return;
+    }
+  }
+}
+
+boardColumnsEl.addEventListener("keydown", (e) => {
+  const card = (e.target as HTMLElement | null)?.closest<HTMLDivElement>(".agent-card");
+  // Only when the card itself holds focus — leave inner buttons (Attach/Review/⋯)
+  // to their own native key handling.
+  if (!card || card !== e.target) return;
+  const cols = [...boardColumnsEl.querySelectorAll<HTMLElement>(".board-col")];
+  const colIdx = cols.findIndex((c) => c.contains(card));
+  const siblings = [
+    ...(card.closest(".board-col-body")?.querySelectorAll<HTMLDivElement>(".agent-card") ?? []),
+  ];
+  const rowIdx = siblings.indexOf(card);
+  switch (e.key) {
+    case "ArrowDown":
+      e.preventDefault();
+      focusBoardCard(siblings[rowIdx + 1]);
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      focusBoardCard(siblings[rowIdx - 1]);
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      focusAdjacentColumn(cols, colIdx, 1, rowIdx);
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      focusAdjacentColumn(cols, colIdx, -1, rowIdx);
+      break;
+    case "Enter":
+    case " ":
+      e.preventDefault();
+      card.click(); // card click === attachCard
+      break;
+  }
+});
 
 /** One section column: header (name + visible count) over a body of stacked
  *  agent cards. Rendered for every section incl. the "no section" catch-all. */
@@ -4002,6 +4104,7 @@ function renderBoardColumns(): void {
     if (top) body.scrollTop = top;
   }
   boardColumnsEl.scrollLeft = prevScrollLeft;
+  updateBoardRoving();
 }
 
 /** Full board render. The filter bar is rebuilt only when needed (it owns the
