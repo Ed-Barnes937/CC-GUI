@@ -852,7 +852,7 @@ async function loadImage(
   side: "old" | "new",
   mime: string,
 ): Promise<string> {
-  const key = `${path} ${side}`;
+  const key = `${path}\x00${side}`;
   const cached = imageCache.get(key);
   if (cached) return cached;
   const b64 = await invoke<string>("read_review_image", { id, path, side });
@@ -879,8 +879,8 @@ async function renderImageDiff(file: FileDiff, mime: string): Promise<void> {
   const oldPath = file.old_path;
   const newPath = file.new_path;
   const someUncached =
-    (needOld && !imageCache.has(`${oldPath} old`)) ||
-    (needNew && !imageCache.has(`${newPath} new`));
+    (needOld && !imageCache.has(`${oldPath}\x00old`)) ||
+    (needNew && !imageCache.has(`${newPath}\x00new`));
   if (someUncached) diffEl.innerHTML = '<div class="review-empty">Loading image…</div>';
 
   let oldUrl: string | null = null;
