@@ -11,7 +11,7 @@
 // don't render (keybindings, theme overrides) survive untouched.
 
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "./toast";
+import { toast, confirmDialog } from "./toast";
 import { noTextAssist } from "./dom";
 import { getMode, setMode, type Mode } from "./theme";
 import { openThemeModal } from "./themeModal";
@@ -242,8 +242,26 @@ overlay.id = "settings-overlay";
 overlay.classList.add("hidden");
 const box = document.createElement("div");
 box.className = "settings-box";
+box.setAttribute("role", "dialog");
+box.setAttribute("aria-modal", "true");
+box.setAttribute("aria-label", "Settings");
 overlay.appendChild(box);
 document.body.appendChild(overlay);
+
+// The config the pane last loaded (as it would be saved), so we can tell whether
+// there are unsaved edits before discarding them. Set on open.
+let originalJson = "";
+// The Save button, held so save feedback can disable/relabel it in flight.
+let saveBtn: HTMLButtonElement | null = null;
+// When a structural re-render (add/move/remove section) should land focus on a
+// specific control afterward, its selector goes here for renderPanel to honor.
+let pendingFocusSelector: string | null = null;
+
+/** A stable DOM id for a config field's control, so its <label> can point at it
+ *  and focus can be restored to it across a panel rebuild. */
+function fieldId(path: string): string {
+  return "set-" + path.replace(/[^\w-]/g, "-");
+}
 
 // ----------------------------------------------------------------- path helpers
 
@@ -279,6 +297,7 @@ function makeControl(field: Field): HTMLElement {
       wrap.className = "switch";
       const input = document.createElement("input");
       input.type = "checkbox";
+      input.id = fieldId(path);
       input.checked = value === true;
       input.dataset.key = path;
       input.dataset.kind = "toggle";
@@ -306,10 +325,31 @@ function makeControl(field: Field): HTMLElement {
         const raw = input.value.trim();
         if (raw === "") {
           if (control.kind === "number-nullable") setPath(working, path, null);
-          return; // required numbers keep their last value when blanked
+          return; // required numbers keep their last value until blur normalizes
         }
         const n = Number(raw);
         if (!Number.isNaN(n)) setPath(working, path, n);
+      });
+      // Normalize on blur so a stored value never silently diverges from the
+      // field: clamp out-of-range numbers to the min/max, and snap a blanked or
+      // unparseable required field back to the value actually stored.
+      input.addEventListener("blur", () => {
+        const raw = input.value.trim();
+        const stored = getPath(working, path);
+        if (raw === "" || Number.isNaN(Number(raw))) {
+          if (raw === "" && control.kind === "number-nullable") {
+            setPath(working, path, null);
+            input.value = "";
+          } else {
+            input.value = stored == null ? "" : String(stored);
+          }
+          return;
+        }
+        let n = Number(raw);
+        if (control.min !== undefined && n < control.min) n = control.min;
+        if (control.max !== undefined && n > control.max) n = control.max;
+        input.value = String(n);
+        setPath(working, path, n);
       });
       el = input;
       break;
@@ -382,6 +422,7 @@ function makeControl(field: Field): HTMLElement {
     }
   }
 
+  el.id = fieldId(path);
   if (field.enabledBy && getPath(working, field.enabledBy) !== true) {
     el.disabled = true;
   }
@@ -428,6 +469,7 @@ function render(): void {
   search.type = "text";
   search.className = "settings-search";
   search.placeholder = "⌕ Search settings…";
+  search.setAttribute("aria-label", "Search settings");
   search.value = searchQuery;
   search.addEventListener("input", () => {
     searchQuery = search.value;
@@ -437,6 +479,7 @@ function render(): void {
 
   const navList = document.createElement("div");
   navList.className = "settings-nav-list";
+  navList.addEventListener("keydown", (e) => onNavKeydown(e, navList));
   renderNav(navList);
 
   nav.append(title, search, navList);
@@ -451,15 +494,52 @@ function render(): void {
   const cancel = document.createElement("button");
   cancel.className = "row-action";
   cancel.textContent = "Cancel";
-  cancel.addEventListener("click", closeSettings);
+  cancel.addEventListener("click", () => void requestClose());
   const save = document.createElement("button");
   save.className = "row-action";
   save.textContent = "Save";
   save.addEventListener("click", () => void saveSettings());
+  saveBtn = save;
   footer.append(cancel, save);
   box.appendChild(footer);
 
   renderPanel();
+  // Land keyboard focus in the search box so the whole pane is reachable by
+  // typing or arrowing from the first keystroke.
+  setTimeout(() => search.focus(), 0);
+}
+
+/** Roving keyboard navigation for the category nav: arrows and Home/End move
+ *  focus between categories, and a printable key jumps to the next category
+ *  whose label starts with it (type-ahead). Enter/Space activate natively. */
+function onNavKeydown(e: KeyboardEvent, navList: HTMLElement): void {
+  const items = [...navList.querySelectorAll<HTMLElement>(".settings-nav-item")];
+  if (items.length === 0) return;
+  const cur = items.indexOf(document.activeElement as HTMLElement);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    items[cur < 0 ? 0 : Math.min(items.length - 1, cur + 1)].focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    items[cur <= 0 ? 0 : cur - 1].focus();
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    items[0].focus();
+  } else if (e.key === "End") {
+    e.preventDefault();
+    items[items.length - 1].focus();
+  } else if (e.key.length === 1 && /\S/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const ch = e.key.toLowerCase();
+    for (let k = 1; k <= items.length; k++) {
+      const it = items[((cur < 0 ? 0 : cur) + k) % items.length];
+      // The label is the text node after the icon span (see renderNav).
+      if ((it.lastChild?.textContent ?? "").trim().toLowerCase().startsWith(ch)) {
+        e.preventDefault();
+        it.focus();
+        break;
+      }
+    }
+  }
 }
 
 /** Fill the nav list with the categories matching the current search. When the
@@ -478,9 +558,12 @@ function renderNav(navList: HTMLElement): void {
   for (const cat of cats) {
     const item = document.createElement("button");
     item.className = "settings-nav-item";
-    item.classList.toggle("active", cat.id === activeCat);
+    const isActive = cat.id === activeCat;
+    item.classList.toggle("active", isActive);
+    if (isActive) item.setAttribute("aria-current", "true");
     const icon = document.createElement("span");
     icon.className = "settings-nav-icon";
+    icon.setAttribute("aria-hidden", "true");
     icon.textContent = CATEGORY_ICONS[cat.id] ?? "·";
     item.append(icon, document.createTextNode(cat.label));
     item.dataset.cat = cat.id;
@@ -488,21 +571,77 @@ function renderNav(navList: HTMLElement): void {
       activeCat = cat.id;
       renderNav(navList);
       renderPanel();
+      // Keep focus on the now-active category so arrow-nav and type-ahead can
+      // continue from here after a keyboard (Enter/Space) activation.
+      navList.querySelector<HTMLElement>(".settings-nav-item.active")?.focus();
     });
     navList.appendChild(item);
   }
 }
 
-/** Re-render just the content panel (nav/footer stay). */
+/** A selector that re-finds the focused control after a panel rebuild, plus its
+ *  caret, or null when focus is outside the panel (nothing to preserve). */
+type PanelFocus = { sel: string; start: number | null; end: number | null };
+
+function capturePanelFocus(panel: HTMLElement): PanelFocus | null {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || !panel.contains(el)) return null;
+  let sel: string | null = null;
+  if (el.id) {
+    sel = `#${CSS.escape(el.id)}`;
+  } else {
+    const field = el.getAttribute("data-section-field");
+    const idx = el.closest<HTMLElement>(".section-card")?.dataset.sectionIndex;
+    if (field && idx != null) {
+      sel = `.section-card[data-section-index="${idx}"] [data-section-field="${field}"]`;
+    }
+  }
+  if (!sel) return null;
+  let start: number | null = null;
+  let end: number | null = null;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    try {
+      start = el.selectionStart;
+      end = el.selectionEnd;
+    } catch {
+      start = end = null; // number/range inputs forbid selection access
+    }
+  }
+  return { sel, start, end };
+}
+
+function restorePanelFocus(panel: HTMLElement, desc: PanelFocus | null): void {
+  if (!desc) return;
+  const el = panel.querySelector<HTMLElement>(desc.sel);
+  if (!el) return;
+  el.focus();
+  if (desc.start != null && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+    try {
+      el.setSelectionRange(desc.start, desc.end ?? desc.start);
+    } catch {
+      /* number/range inputs forbid setSelectionRange */
+    }
+  }
+}
+
+/** Re-render just the content panel (nav/footer stay). Keyboard focus is
+ *  preserved across the rebuild: an explicit `pendingFocusSelector` wins,
+ *  otherwise the previously-focused control is re-found and re-focused. */
 function renderPanel(): void {
   const panel = box.querySelector<HTMLElement>(".settings-panel");
   if (!panel) return;
+  const captured = capturePanelFocus(panel);
   panel.innerHTML = "";
   // A search with no matches empties the panel too — otherwise the nav says
   // "No matches" while the previously-active category keeps rendering.
   if (visibleCategories().length === 0) return;
   const cat = CATEGORIES.find((c) => c.id === activeCat);
   if (!cat) return;
+  const restore = () => {
+    const desc = pendingFocusSelector ? { sel: pendingFocusSelector, start: null, end: null } : captured;
+    pendingFocusSelector = null;
+    restorePanelFocus(panel, desc);
+  };
 
   const heading = document.createElement("div");
   heading.className = "settings-panel-heading";
@@ -519,6 +658,7 @@ function renderPanel(): void {
   if ("custom" in cat) {
     if (cat.custom === "sections") renderSections(panel);
     else renderTheme(panel);
+    restore();
     return;
   }
 
@@ -532,6 +672,7 @@ function renderPanel(): void {
     head.className = "settings-field-head";
     const label = document.createElement("label");
     label.className = "settings-field-label";
+    label.htmlFor = fieldId(field.path);
     label.textContent = field.label;
     head.appendChild(label);
     if (field.desc) {
@@ -544,6 +685,7 @@ function renderPanel(): void {
     row.append(head, control);
     panel.appendChild(row);
   }
+  restore();
 }
 
 // ----------------------------------------------------------------- theme tab
@@ -717,6 +859,8 @@ function renderSections(panel: HTMLElement): void {
   add.textContent = "+ Add section";
   add.addEventListener("click", () => {
     sectionDrafts.push(blankSection());
+    // Drop the cursor straight into the new section's name field.
+    pendingFocusSelector = `.section-card[data-section-index="${sectionDrafts.length - 1}"] [data-section-field="name"]`;
     renderPanel();
   });
 
@@ -740,10 +884,16 @@ function sectionCard(draft: SectionDraft, index: number): HTMLElement {
 
   const tools = document.createElement("div");
   tools.className = "section-tools";
-  const up = iconBtn("↑", index === 0, () => moveSection(index, -1));
-  const down = iconBtn("↓", index === sectionDrafts.length - 1, () => moveSection(index, 1));
-  const del = iconBtn("✕", false, () => {
+  const up = iconBtn("↑", "Move section up", "up", index === 0, () => moveSection(index, -1));
+  const down = iconBtn("↓", "Move section down", "down", index === sectionDrafts.length - 1, () => moveSection(index, 1));
+  const del = iconBtn("✕", "Remove section", "del", false, () => {
     sectionDrafts.splice(index, 1);
+    // Land focus on a remaining card's remove button, or the add button if the
+    // list is now empty.
+    const remaining = sectionDrafts.length;
+    pendingFocusSelector = remaining === 0
+      ? ".section-add"
+      : `.section-card[data-section-index="${Math.min(index, remaining - 1)}"] [data-act="del"]`;
     renderPanel();
   });
   tools.append(up, down, del);
@@ -778,13 +928,19 @@ function moveSection(index: number, delta: number): void {
   const j = index + delta;
   if (j < 0 || j >= sectionDrafts.length) return;
   [sectionDrafts[index], sectionDrafts[j]] = [sectionDrafts[j], sectionDrafts[index]];
+  // Keep focus on the arrow that moved; when it lands on a boundary (and so
+  // disables), fall back to the opposite arrow at the new position.
+  const act = delta < 0 ? (j === 0 ? "down" : "up") : (j === sectionDrafts.length - 1 ? "up" : "down");
+  pendingFocusSelector = `.section-card[data-section-index="${j}"] [data-act="${act}"]`;
   renderPanel();
 }
 
-function iconBtn(glyph: string, disabled: boolean, onClick: () => void): HTMLButtonElement {
+function iconBtn(glyph: string, label: string, act: string, disabled: boolean, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = "section-icon";
   b.textContent = glyph;
+  b.setAttribute("aria-label", label);
+  b.dataset.act = act;
   b.disabled = disabled;
   b.addEventListener("click", onClick);
   return b;
@@ -868,21 +1024,54 @@ function maxSessionsInput(draft: SectionDraft): HTMLInputElement {
   input.placeholder = "(none)";
   input.dataset.sectionField = "max_sessions";
   input.addEventListener("input", () => (draft.maxSessions = input.value));
+  // Normalize on blur: a WIP limit is a whole number ≥ 1, so clamp anything
+  // lower and drop an unparseable entry rather than storing it.
+  input.addEventListener("blur", () => {
+    const raw = input.value.trim();
+    if (raw === "") return;
+    const n = Number(raw);
+    input.value = draft.maxSessions = Number.isNaN(n) ? "" : String(Math.max(1, Math.floor(n)));
+  });
   return input;
 }
 
 // ----------------------------------------------------------------- save / open
 
+/** The working config as it would be persisted, with section drafts encoded. */
+function snapshotForSave(): Config {
+  return { ...working, sections: encodeSections(sectionDrafts) };
+}
+
+/** Whether the pane holds edits that have not been saved. */
+function isDirty(): boolean {
+  return JSON.stringify(snapshotForSave()) !== originalJson;
+}
+
 async function saveSettings(): Promise<void> {
-  working.sections = encodeSections(sectionDrafts);
+  // Flush a focused field's pending blur-normalization first: Cmd/Ctrl+Enter can
+  // fire while a number input still holds focus and an out-of-range value.
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const snapshot = snapshotForSave();
+  const btn = saveBtn;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+  }
   try {
-    const restartRequired = await invoke<boolean>("save_config", { config: working });
+    const restartRequired = await invoke<boolean>("save_config", { config: snapshot });
+    originalJson = JSON.stringify(snapshot);
     closeSettings();
-    if (restartRequired) {
-      toast("Saved. Some changes take effect after restarting the app.");
-    }
+    toast(
+      restartRequired
+        ? "Settings saved. Some changes take effect after restarting the app."
+        : "Settings saved.",
+    );
   } catch (e) {
-    toast(`save failed: ${e}`, "error");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+    toast("Couldn't save settings.", "error", String(e));
   }
 }
 
@@ -898,6 +1087,7 @@ export async function openSettings(): Promise<void> {
   sectionDrafts = decodeSections(working.sections);
   activeCat = CATEGORIES[0].id;
   searchQuery = "";
+  originalJson = JSON.stringify(snapshotForSave());
   render();
   overlay.classList.remove("hidden");
 }
@@ -906,9 +1096,25 @@ function closeSettings(): void {
   overlay.classList.add("hidden");
 }
 
+/** Close the pane, but guard unsaved edits behind a discard confirmation. */
+async function requestClose(): Promise<void> {
+  if (isDirty()) {
+    const discard = await confirmDialog("Discard unsaved changes?", "Discard");
+    if (!discard) return;
+  }
+  closeSettings();
+}
+
 overlay.addEventListener("click", (e) => {
-  if (e.target === overlay) closeSettings();
+  if (e.target === overlay) void requestClose();
+});
+box.addEventListener("keydown", (e) => {
+  // Cmd/Ctrl+Enter saves from anywhere in the pane.
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    void saveSettings();
+  }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !overlay.classList.contains("hidden")) closeSettings();
+  if (e.key === "Escape" && !overlay.classList.contains("hidden")) void requestClose();
 });

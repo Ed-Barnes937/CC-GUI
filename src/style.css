@@ -2238,7 +2238,7 @@ body {
   width: 240px;
   background: var(--bg-inset);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-2);
   color: var(--text);
   font-size: 12px;
   padding: 4px 8px;
@@ -2317,7 +2317,7 @@ body {
   position: absolute;
   inset: 0;
   background: var(--border-strong);
-  border-radius: 20px;
+  border-radius: 999px;
   transition: background 0.12s ease;
   cursor: pointer;
 }
@@ -2347,7 +2347,7 @@ body {
   display: inline-flex;
   flex-shrink: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-1);
   overflow: hidden;
 }
 
@@ -2386,7 +2386,7 @@ body {
 
 .section-card {
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-2);
   padding: 10px 12px;
   background: var(--bg-inset);
 }
@@ -2402,8 +2402,9 @@ body {
   flex: 1;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-2);
   color: var(--text);
+  font-family: var(--font-mono);
   font-size: 12px;
   padding: 4px 8px;
   outline: none;
@@ -2417,7 +2418,7 @@ body {
 .section-icon {
   background: none;
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-1);
   color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
@@ -2448,8 +2449,9 @@ body {
 .section-grid select {
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-2);
   color: var(--text);
+  font-family: var(--font-mono);
   font-size: 12px;
   padding: 3px 7px;
   outline: none;
@@ -2489,6 +2491,36 @@ body {
   border-top: 1px solid var(--border);
   padding: 12px 16px;
   margin-top: 0;
+}
+
+/* keyboard focus — one accent ring across every settings control, so the whole
+   pane is operable and visibly traceable by keyboard. :focus-visible keeps the
+   ring off mouse interactions. */
+#settings-overlay .settings-nav-item:focus-visible,
+#settings-overlay .settings-search:focus-visible,
+#settings-overlay .row-action:focus-visible,
+#settings-overlay .section-icon:focus-visible,
+#settings-overlay .settings-field > input:focus-visible,
+#settings-overlay .settings-field > select:focus-visible,
+#settings-overlay .settings-field > textarea:focus-visible,
+#settings-overlay .section-card input:focus-visible,
+#settings-overlay .section-card select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The segment sits in an overflow-clipped track, so its ring is inset to avoid
+   being cut off. */
+#settings-overlay .settings-segment button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The real toggle checkbox is visually collapsed; mirror its focus onto the
+   slider the user actually sees. */
+#settings-overlay .switch input:focus-visible + .slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* --------------------------------------------------------- panel resizers */
