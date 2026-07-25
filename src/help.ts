@@ -31,17 +31,18 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     "Review",
     [
       ["Click line", "Select for comment (shift-click extends, Esc clears)"],
+      ["j / k", "Move the line cursor (Enter or c comments that line)"],
       ["Cmd/Ctrl+Enter", "Save comment"],
       ["↑/↓ or Ctrl-P/N", "Previous / next file"],
       ["○ / ✓", "Toggle file reviewed (bands the row, fills the ring)"],
-      ["Apply N comments →", "Send staged comments to the agent"],
+      ["Apply N comments →", "Send staged comments to the agent (press twice to confirm)"],
       ["↻ / Esc", "Refresh diff / close"],
     ],
   ],
   [
     "File explorer",
     [
-      ["Cmd+E", "Open/close the file explorer for the active session's repo"],
+      ["Cmd/Ctrl+E", "Open/close the file explorer for the active session's repo"],
       ["↑/↓ or j/k", "Move the cursor"],
       ["Enter / → / l", "Open a folder, or reference the file as @path in the terminal"],
       ["Backspace / ← / h", "Up to the parent folder"],
@@ -49,6 +50,14 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
       [".", "Toggle hidden (dot) files"],
       ["Click / double-click", "Move cursor / open"],
       ["Esc", "Close"],
+    ],
+  ],
+  [
+    "Board",
+    [
+      ["Arrow keys", "Move focus between cards and columns"],
+      ["Enter / Space", "Attach the focused card"],
+      ["Hover / focus a card", "Reveal its attach, review, and ⋯ actions"],
     ],
   ],
   [

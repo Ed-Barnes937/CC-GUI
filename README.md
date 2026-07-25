@@ -115,7 +115,7 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Jump to terminal tab by number | `Cmd+1`–`Cmd+9` |
 | Previous / next terminal tab | `Cmd+Opt+←` / `Cmd+Opt+→` |
 | Previous / next session (attaches it) | `Cmd+Opt+↑` / `Cmd+Opt+↓` |
-| Open/close file explorer (active session's repo) | `Cmd+E` |
+| Open/close file explorer (active session's repo) | `Cmd/Ctrl+E` |
 | File explorer: move cursor | `↑`/`↓` or `j`/`k` |
 | File explorer: open folder / reference file as `@path` | `Enter` / `→` / `l` |
 | File explorer: up to parent / filter / toggle hidden | `Backspace` / `/` / `.` |
@@ -139,9 +139,14 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Project shell | `$` on the project |
 | Switch sidebar grouping (Sections / Projects / Status) | `GROUP BY` control |
 | Move a session to a section | drag its row onto a section header (drop on *In Progress* to unpin) |
+| Review: move the line cursor (comment without the mouse) | `j` / `k` |
+| Review: comment the cursor line | `Enter` or `c` |
 | Save a review comment | `Cmd/Ctrl+Enter` |
 | Review: previous / next file | `↑` / `↓` or `Ctrl-P` / `Ctrl-N` |
 | Review: toggle a file reviewed (bands the row) | click `○` / `✓` on the file row |
+| Review: apply staged comments (press twice to confirm) | `Apply` button |
+| Board: move focus between cards / columns | arrow keys |
+| Board: attach the focused card | `Enter` / `Space` |
 
 ## Platform notes
 

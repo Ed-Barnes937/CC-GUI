@@ -1641,7 +1641,7 @@ const SECTION_VIEW = (): boolean => sections !== null;
 /** Create-input key for a project sub-header inside a section. The `sect:`
  *  prefix can't collide with a bare project uuid (project-view key). */
 const sectionCreateKey = (section: string, projectId: string): string =>
-  `sect:${section} ${projectId}`;
+  `sect:${section}\x00${projectId}`;
 
 // Collapsed sidebar groups ("proj:<id>" / "sect:<name>"), persisted.
 const collapsed = new Set<string>(
@@ -3482,7 +3482,7 @@ type BoardSection = { key: string; name: string; sessions: SessionRow[] };
 
 // Sentinel key for the leading catch-all column (sessions with no section pin,
 // and — when no sections are configured at all — every session).
-const NO_SECTION_KEY = " none";
+const NO_SECTION_KEY = "\x00none";
 const NO_SECTION_LABEL = "No section";
 
 /** All sessions across projects, bucketed into section columns and narrowed by
