@@ -3157,6 +3157,7 @@ document.querySelector<HTMLButtonElement>("#sidebar-menu")!.addEventListener("cl
 // purely driven by the live snapshot (applySnapshot) and terminal attach/detach.
 
 const onboardingEl = document.querySelector<HTMLDivElement>("#onboarding")!;
+const onboardingAddProjectBtn = document.querySelector<HTMLButtonElement>("#onboarding-add-project")!;
 const onboardingCommanderBtn = document.querySelector<HTMLButtonElement>("#onboarding-commander")!;
 let commanderEnabled = false; // mirrors renderCommander's gate; set in applySnapshot
 
@@ -3167,6 +3168,7 @@ function onboardingActive(): boolean {
 
 function renderOnboarding(): void {
   const show = onboardingActive();
+  const wasShown = !onboardingEl.classList.contains("hidden");
   onboardingEl.classList.toggle("hidden", !show);
   // Board layout hides #terminal-pane, which hosts the hero — so a persisted
   // Board layout (or deleting the last project while on the Board) would show
@@ -3179,25 +3181,29 @@ function renderOnboarding(): void {
   onboardingCommanderBtn.disabled = !commanderEnabled;
   onboardingCommanderBtn.classList.toggle("outline", commanderEnabled);
   onboardingCommanderBtn.classList.toggle("muted", !commanderEnabled);
+  // On first show, focus the primary path so Enter fires "Choose folder…"
+  // (the ⏎-hinted CTA) rather than nothing — card 3's commander button is
+  // disabled here, so it must never be the implicit Enter target.
+  if (show && !wasShown) onboardingAddProjectBtn.focus();
 }
 
-document
-  .querySelector<HTMLButtonElement>("#onboarding-add-project")!
-  .addEventListener("click", () => {
-    // Same native folder-picker the sidebar's Browse… uses; a cancel (no path
-    // picked) falls back to revealing the sidebar's path input so they can
-    // type it instead.
-    void openFolderDialog({ directory: true }).then((picked) => {
-      if (typeof picked === "string") {
-        invoke("add_project", { path: picked })
-          .catch((err) => toast(`add project failed: ${err}`, "error"))
-          .finally(() => void refreshNow());
-      } else {
-        topInput = "add";
-        renderSidebar();
-      }
-    });
+onboardingAddProjectBtn.addEventListener("click", () => {
+  // Same native folder-picker the sidebar's Browse… uses; a cancel (no path
+  // picked) falls back to revealing the sidebar's path input so they can
+  // type it instead.
+  void openFolderDialog({ directory: true }).then((picked) => {
+    if (typeof picked === "string") {
+      const name = picked.replace(/\/+$/, "").split("/").pop() || picked;
+      invoke("add_project", { path: picked })
+        .then(() => toast(`Added ${name}.`))
+        .catch((err) => actionErrorToast("add_project", err))
+        .finally(() => void refreshNow());
+    } else {
+      topInput = "add";
+      renderSidebar();
+    }
   });
+});
 
 onboardingCommanderBtn.addEventListener("click", () => commanderChip.click());
 

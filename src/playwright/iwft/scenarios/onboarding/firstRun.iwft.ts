@@ -26,8 +26,8 @@ test.describe("zero projects, commander disabled (default)", () => {
       "2 · Start a session",
       "3 · Meet commander",
     ]);
-    await expect(onboarding.addProjectButton()).toHaveText("Choose folder…");
-    await expect(onboarding.commanderButton()).toHaveText("Attach ⏎");
+    await expect(onboarding.addProjectButton()).toHaveText("Choose folder… ⏎");
+    await expect(onboarding.commanderButton()).toHaveText("Attach");
   });
 
   test("card 3 (Meet commander) is inert when the commander isn't configured", async ({

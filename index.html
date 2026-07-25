@@ -46,31 +46,31 @@
         <div id="terminals">
           <div id="placeholder">Select a session to attach.</div>
         </div>
-        <div id="onboarding" class="hidden">
+        <div id="onboarding" class="hidden" role="region" aria-labelledby="onboarding-title">
           <div class="onboarding-hero">
-            <div class="onboarding-title">Run your agents, side by side.</div>
+            <h1 id="onboarding-title" class="onboarding-title">Run your agents, side by side.</h1>
             <p class="onboarding-sub">
               Point claude-commander at a git repo and it spins up parallel Claude Code
               sessions in isolated worktrees. Add your first project to begin.
             </p>
             <div class="onboarding-cards">
               <div class="onboarding-card primary">
-                <div class="onboarding-icon accent">＋</div>
+                <div class="onboarding-icon accent" aria-hidden="true">+</div>
                 <div class="onboarding-card-title">1 · Add a project</div>
                 <p class="onboarding-card-sub">Choose a repo folder. It becomes a column of sessions.</p>
-                <button id="onboarding-add-project" class="onboarding-cta primary">Choose folder…</button>
+                <button id="onboarding-add-project" class="onboarding-cta primary">Choose folder… <span class="onboarding-cta-key" aria-hidden="true">⏎</span></button>
               </div>
               <div class="onboarding-card">
-                <div class="onboarding-icon success">❯</div>
+                <div class="onboarding-icon success" aria-hidden="true">❯</div>
                 <div class="onboarding-card-title">2 · Start a session</div>
                 <p class="onboarding-card-sub">Name a task; an agent starts in a fresh branch + worktree.</p>
                 <span class="onboarding-cta muted">After a project</span>
               </div>
               <div class="onboarding-card">
-                <div class="onboarding-icon info">◈</div>
+                <div class="onboarding-icon info" aria-hidden="true">◈</div>
                 <div class="onboarding-card-title">3 · Meet commander</div>
                 <p class="onboarding-card-sub">One always-on session to orchestrate the rest.</p>
-                <button id="onboarding-commander" class="onboarding-cta outline">Attach ⏎</button>
+                <button id="onboarding-commander" class="onboarding-cta outline">Attach</button>
               </div>
             </div>
             <div class="onboarding-hint">
