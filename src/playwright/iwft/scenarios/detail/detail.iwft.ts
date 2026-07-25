@@ -39,6 +39,14 @@ test("Review diff in the pinned bar opens the review pane", async ({ detail, pag
   await expect(page.locator("#review")).toBeVisible();
 });
 
+test("Escape dismisses the pane", async ({ detail, page }) => {
+  await detail.open("fix login bug");
+  await expect(page.locator("#detail")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#detail")).toBeHidden();
+});
+
 test.describe("session without changes", () => {
   test.use({ seed: defaultSeed() }); // no diffStats seeded
 
