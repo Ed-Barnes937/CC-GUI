@@ -3374,6 +3374,7 @@ body.resizing .row-divider {
 }
 
 #fx-crumbs {
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
@@ -3415,7 +3416,7 @@ body.resizing .row-divider {
 }
 
 #fx-close:hover {
-  color: var(--danger);
+  color: var(--text);
 }
 
 #fx-list {
@@ -3443,10 +3444,19 @@ body.resizing .row-divider {
   background: var(--row-selected-bg);
 }
 
+/* Keyboard-focus affordance: the active option shows an inset accent ring
+   whenever the listbox holds focus. */
+#fx-list:focus .fx-row.cursor,
+#fx-list:focus-visible .fx-row.cursor {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .fx-row .fx-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: var(--font-mono);
 }
 
 .fx-row.dir .fx-name {
@@ -3454,6 +3464,7 @@ body.resizing .row-divider {
 }
 
 .fx-row .fx-size {
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-dim);
   flex-shrink: 0;
@@ -3462,6 +3473,10 @@ body.resizing .row-divider {
 .fx-empty {
   padding: 12px;
   color: var(--text-dim);
+}
+
+.fx-empty.fx-error {
+  color: var(--danger);
 }
 
 #fx-status {
@@ -3480,7 +3495,12 @@ body.resizing .row-divider {
   flex: 1;
 }
 
+#fx-count {
+  font-family: var(--font-mono);
+}
+
 #fx-filter {
+  font-family: var(--font-mono);
   color: var(--text);
 }
 

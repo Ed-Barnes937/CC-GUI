@@ -33,6 +33,8 @@ let cursor = 0;
 let filter = "";
 let filtering = false;
 let showHidden = false;
+let loading = false;
+let loadError: string | null = null;
 
 export function isExplorerOpen(): boolean {
   return !el.classList.contains("hidden");
@@ -68,6 +70,9 @@ function visible(): FsEntry[] {
 async function load(): Promise<void> {
   if (!sessionId) return;
   const id = sessionId;
+  loadError = null;
+  loading = true;
+  render();
   try {
     const listing = await invoke<DirListing>("list_session_dir", {
       sessionId: id,
@@ -78,9 +83,11 @@ async function load(): Promise<void> {
     entries = listing.entries;
     subPath = listing.rel_path;
   } catch (e) {
-    toast(`file explorer: ${e}`, "error");
+    if (sessionId !== id) return; // closed or switched while loading
     entries = [];
+    loadError = String(e);
   }
+  loading = false;
   cursor = 0;
   render();
 }
@@ -91,7 +98,17 @@ function render(): void {
   if (cursor >= list.length) cursor = Math.max(0, list.length - 1);
 
   listEl.innerHTML = "";
-  if (!list.length) {
+  if (loadError) {
+    const err = document.createElement("div");
+    err.className = "fx-empty fx-error";
+    err.textContent = `Couldn't read this folder — ${loadError}`;
+    listEl.appendChild(err);
+  } else if (loading && !list.length) {
+    const busy = document.createElement("div");
+    busy.className = "fx-empty";
+    busy.textContent = "Reading folder…";
+    listEl.appendChild(busy);
+  } else if (!list.length) {
     const empty = document.createElement("div");
     empty.className = "fx-empty";
     empty.textContent = filter ? "No matches." : "Empty directory.";
@@ -100,6 +117,9 @@ function render(): void {
   list.forEach((entry, i) => {
     const row = document.createElement("div");
     row.className = "fx-row" + (entry.is_dir ? " dir" : "") + (i === cursor ? " cursor" : "");
+    row.id = `fx-row-${i}`;
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(i === cursor));
     const name = document.createElement("span");
     name.className = "fx-name";
     name.textContent = entry.is_dir ? `${entry.name}/` : entry.name;
@@ -121,7 +141,10 @@ function render(): void {
     listEl.appendChild(row);
   });
 
-  listEl.querySelector(".fx-row.cursor")?.scrollIntoView({ block: "nearest" });
+  const cursorRow = listEl.querySelector<HTMLElement>(".fx-row.cursor");
+  cursorRow?.scrollIntoView({ block: "nearest" });
+  if (cursorRow) listEl.setAttribute("aria-activedescendant", cursorRow.id);
+  else listEl.removeAttribute("aria-activedescendant");
 
   hiddenHintEl.textContent = showHidden ? "· hidden shown" : "";
   filterEl.textContent = `/${filter}`;
