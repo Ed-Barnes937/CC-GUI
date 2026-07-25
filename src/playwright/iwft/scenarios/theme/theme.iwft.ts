@@ -54,6 +54,64 @@ test("the active theme is marked with the check", async ({ themePicker }) => {
   expect(await themePicker.currentLabel()).toBe("Catppuccin Frappé");
 });
 
+test("the picker exposes listbox / option / switch semantics", async ({
+  themePicker,
+}) => {
+  await themePicker.open("dark");
+
+  // The list is a listbox; theme rows are options; the follow row is a switch.
+  await expect(themePicker.listbox()).toHaveAttribute("role", "listbox");
+  await expect(themePicker.optionRows().first()).toHaveAttribute("role", "option");
+  await expect(themePicker.followSwitch()).toHaveAttribute("role", "switch");
+
+  // The highlighted row is the one aria-activedescendant points at, and it is the
+  // only option marked aria-selected.
+  expect(await themePicker.activeDescendantId()).toBe(await themePicker.selectedRowId());
+  const selected = themePicker.optionRows().filter({ hasText: "Catppuccin Mocha" });
+  await expect(selected).toHaveAttribute("aria-selected", "true");
+});
+
+test("type-ahead jumps to a theme by name", async ({ themePicker }) => {
+  await themePicker.open("dark"); // starts on Catppuccin Mocha
+  await themePicker.type("everf"); // matches the word "Everforest"
+  expect(await themePicker.selectedLabel()).toBe("Everforest Dark");
+});
+
+test("type-ahead separates the shared Catppuccin family", async ({
+  themePicker,
+}) => {
+  await themePicker.open("dark");
+  // Any word's prefix matches, so "ma" reaches Macchiato even though every
+  // built-in label begins "Catppuccin" and "Mocha" would win a label-prefix match.
+  await themePicker.type("ma");
+  expect(await themePicker.selectedLabel()).toBe("Catppuccin Macchiato");
+});
+
+test("Home and End jump to the first and last theme", async ({ themePicker }) => {
+  await themePicker.open("dark");
+  await themePicker.end();
+  expect(await themePicker.selectedLabel()).toBe("Daylight (High Contrast)");
+  await themePicker.home();
+  expect(await themePicker.selectedLabel()).toBe("Catppuccin Mocha");
+});
+
+test("Tab is trapped — the popover keeps focus", async ({ themePicker, page }) => {
+  await themePicker.open("dark");
+  await themePicker.tab();
+  expect(await themePicker.isOpen()).toBe(true);
+  // Focus stays on the listbox rather than escaping to the app behind the popover.
+  const focusedInModal = await page.evaluate(() =>
+    document.activeElement?.closest(".theme-modal") !== null,
+  );
+  expect(focusedInModal).toBe(true);
+});
+
+test("the footer names the preview contract", async ({ themePicker }) => {
+  await themePicker.open("dark");
+  await expect(themePicker.hint()).toBeVisible();
+  await expect(themePicker.hint()).toContainText("preview");
+});
+
 test.describe("custom themes", () => {
   test.use({
     seed: {

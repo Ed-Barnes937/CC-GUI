@@ -35,6 +35,23 @@ export class ThemePickerPageObject extends AppPageObject {
     return this.step("up", () => this.page.keyboard.press("ArrowUp"));
   }
 
+  home(): Promise<void> {
+    return this.step("home", () => this.page.keyboard.press("Home"));
+  }
+
+  end(): Promise<void> {
+    return this.step("end", () => this.page.keyboard.press("End"));
+  }
+
+  tab(): Promise<void> {
+    return this.step("tab", () => this.page.keyboard.press("Tab"));
+  }
+
+  /** Type-ahead: send characters that should jump the highlight by name. */
+  type(text: string): Promise<void> {
+    return this.step(`type: ${text}`, () => this.page.keyboard.type(text));
+  }
+
   commitEnter(): Promise<void> {
     return this.step("commitEnter", async () => {
       await this.page.keyboard.press("Enter");
@@ -69,6 +86,36 @@ export class ThemePickerPageObject extends AppPageObject {
 
   customTaggedRows(): Locator {
     return this.rows.filter({ has: this.page.locator(".theme-modal-tag") });
+  }
+
+  /** The ARIA listbox (the scrollable option container). */
+  listbox(): Locator {
+    return this.modal.locator(".theme-modal-list");
+  }
+
+  /** Theme rows exposed as options (excludes the follow-system switch row). */
+  optionRows(): Locator {
+    return this.modal.locator('.theme-modal-row[role="option"]');
+  }
+
+  /** The follow-system control, exposed as a switch. */
+  followSwitch(): Locator {
+    return this.modal.locator("#theme-opt-follow");
+  }
+
+  /** The muted footer that names the preview contract. */
+  hint(): Locator {
+    return this.modal.locator(".theme-modal-hint");
+  }
+
+  /** id of the currently highlighted theme row. */
+  selectedRowId(): Promise<string | null> {
+    return this.modal.locator(".theme-modal-row.selected").getAttribute("id");
+  }
+
+  /** The element the listbox points at via aria-activedescendant. */
+  activeDescendantId(): Promise<string | null> {
+    return this.listbox().getAttribute("aria-activedescendant");
   }
 
   isOpen(): Promise<boolean> {
