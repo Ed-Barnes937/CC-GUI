@@ -1363,11 +1363,30 @@ function metaRow(label: string, value: string): [HTMLElement, HTMLElement] {
   return [dt, dd];
 }
 
+/** Update the meta list without rebuilding it when the row shape is unchanged,
+ *  so the 2s poll never destroys an in-progress selection of a branch or PR
+ *  URL. Full rebuild only when the labels themselves change (PR row appears or
+ *  disappears); otherwise touch a `dd`'s text only when its value differs. */
+function renderMeta(rows: [string, string][]): void {
+  const sameShape =
+    detailMetaEl.childElementCount === rows.length * 2 &&
+    rows.every(([label], i) => detailMetaEl.children[i * 2].textContent === label);
+  if (sameShape) {
+    rows.forEach(([, value], i) => {
+      const dd = detailMetaEl.children[i * 2 + 1];
+      if (dd.textContent !== value) dd.textContent = value;
+    });
+    return;
+  }
+  detailMetaEl.innerHTML = "";
+  for (const [label, value] of rows) detailMetaEl.append(...metaRow(label, value));
+}
+
 function renderDetail(d: SessionDetail): void {
   detailTitleEl.textContent = d.title;
+  detailTitleEl.title = d.title; // recover the full string when truncated
   detailPrUrl = d.pr_url;
 
-  detailMetaEl.innerHTML = "";
   const status =
     d.status.toLowerCase() === "running" ? `running · ${d.agent_state}` : d.status.toLowerCase();
   // Order per the brief: branch / (worktree — omitted, not surfaced to the
@@ -1380,9 +1399,7 @@ function renderDetail(d: SessionDetail): void {
     ]);
   }
   rows.push(["Status", status], ["Program", d.program], ["Created", new Date(d.created_at).toLocaleString()]);
-  for (const [label, value] of rows) {
-    detailMetaEl.append(...metaRow(label, value));
-  }
+  renderMeta(rows);
 
   detailDiffstatEl.innerHTML = "";
   const stat = d.diff_stat ? parseDiffStat(d.diff_stat) : null;
@@ -1506,7 +1523,6 @@ function toggleDetail(s: SessionRow): void {
 }
 
 document.querySelector("#detail-close")!.addEventListener("click", closeDetail);
-document.querySelector("#detail-collapse")!.addEventListener("click", closeDetail);
 detailReviewEl.addEventListener("click", () => {
   if (detailId) void openReview(detailId, detailTitleEl.textContent ?? "");
 });
@@ -4301,6 +4317,13 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
       void generateSummary();
     },
   },
+  toggle_details: {
+    label: "Toggle details for cursor session",
+    run: () => {
+      const s = targetSession();
+      if (s) toggleDetail(s);
+    },
+  },
   toggle_section: {
     label: "Collapse/expand cursor group",
     run: () => {
@@ -4376,8 +4399,13 @@ void listen("config-updated", async () => {
   if (await reloadKeybindings()) applyHelpKeybindings();
 });
 
-// Esc clears the keyboard cursor (overlays handle their own Esc).
+// Esc dismisses the detail panel when it's open, else clears the keyboard
+// cursor (overlays handle their own Esc).
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && detailId && !keyOverlayOpen() && !(e.target as HTMLElement).closest(".xterm")) {
+    closeDetail();
+    return;
+  }
   if (e.key === "Escape" && selectedId && !keyOverlayOpen() && !(e.target as HTMLElement).closest(".xterm")) {
     selectRow(null);
   }

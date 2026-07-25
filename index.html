@@ -115,11 +115,10 @@
           <span id="fx-count"></span>
         </div>
       </div>
-      <aside id="detail" class="hidden">
+      <aside id="detail" class="hidden" aria-label="Session details">
         <header>
-          <button id="detail-collapse" title="Collapse">◀</button>
           <span id="detail-title"></span>
-          <button id="detail-close" title="Close">×</button>
+          <button id="detail-close" title="Close" aria-label="Close details">×</button>
         </header>
         <div id="detail-actions">
           <button id="detail-review" class="detail-action primary">± Review diff</button>
@@ -127,12 +126,12 @@
         </div>
         <dl id="detail-meta"></dl>
         <div id="detail-changes-label"></div>
-        <div id="detail-diffstat"></div>
+        <div id="detail-diffstat" aria-live="polite"></div>
         <div id="detail-summary-label">
           <span>AI summary</span>
           <button id="summary-gen" class="row-action">↻ Generate</button>
         </div>
-        <div id="detail-summary"></div>
+        <div id="detail-summary" aria-live="polite"></div>
         <div id="detail-tags"></div>
       </aside>
       <div id="board" class="hidden">
