@@ -52,6 +52,9 @@ export function score(query: string, text: string): number | null {
 const overlay = document.createElement("div");
 overlay.id = "palette";
 overlay.classList.add("hidden");
+overlay.setAttribute("role", "dialog");
+overlay.setAttribute("aria-modal", "true");
+overlay.setAttribute("aria-label", "Command palette");
 const box = document.createElement("div");
 box.className = "palette-box";
 const header = document.createElement("div");
@@ -59,14 +62,24 @@ header.className = "palette-header";
 const kbd = document.createElement("span");
 kbd.className = "palette-kbd";
 kbd.textContent = "⌘";
+kbd.setAttribute("aria-hidden", "true");
 const input = noTextAssist(document.createElement("input"));
 input.placeholder = "Jump to session or run a command…";
+input.setAttribute("role", "combobox");
+input.setAttribute("aria-label", "Jump to session or run a command");
+input.setAttribute("aria-autocomplete", "list");
+input.setAttribute("aria-expanded", "true");
+input.setAttribute("aria-controls", "palette-list");
 const esc = document.createElement("span");
 esc.className = "palette-esc";
 esc.textContent = "esc";
+esc.setAttribute("aria-hidden", "true");
 header.append(kbd, input, esc);
 const list = document.createElement("div");
 list.className = "palette-list";
+list.id = "palette-list";
+list.setAttribute("role", "listbox");
+list.setAttribute("aria-label", "Sessions and commands");
 box.append(header, list);
 overlay.appendChild(box);
 document.body.appendChild(overlay);
@@ -74,8 +87,12 @@ document.body.appendChild(overlay);
 let entries: PaletteEntry[] = [];
 let filtered: PaletteEntry[] = [];
 let selected = 0;
+// The element focused when the palette opened, restored on close so keyboard
+// users land back where they were instead of on document.body.
+let lastFocused: HTMLElement | null = null;
 
 function openPalette(): void {
+  lastFocused = document.activeElement as HTMLElement | null;
   entries = providers.flatMap((p) => p());
   input.value = "";
   selected = 0;
@@ -86,6 +103,9 @@ function openPalette(): void {
 
 function closePalette(): void {
   overlay.classList.add("hidden");
+  const restore = lastFocused;
+  lastFocused = null;
+  if (restore && document.contains(restore)) restore.focus();
 }
 
 export function togglePalette(): void {
@@ -99,16 +119,36 @@ function kindRank(e: PaletteEntry): number {
   return e.kind === "session" ? 0 : 1;
 }
 
+// The command provider tags shortcut-only commands with a filler hint; it is
+// neither shown nor searched, so only real descriptions and session metadata
+// (branch/group) contribute to matching.
+const FILLER_HINT = "command";
+function displayHint(e: PaletteEntry): string {
+  return e.hint === FILLER_HINT ? "" : e.hint;
+}
+function searchText(e: PaletteEntry): string {
+  const hint = displayHint(e);
+  return hint ? `${e.label} ${hint}` : e.label;
+}
+
 function refilter(): void {
   const q = input.value.trim();
-  const ranked = !q
-    ? entries.slice(0, 30)
-    : entries
-        .map((e) => ({ e, s: score(q, `${e.label} ${e.hint}`) }))
-        .filter((x): x is { e: PaletteEntry; s: number } => x.s !== null)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 30)
-        .map((x) => x.e);
+  let ranked: PaletteEntry[];
+  if (!q) {
+    // Empty query: show every command, plus a capped slice of sessions, so a
+    // large fleet never pushes the command list out of reach (a global
+    // slice(0,30) hid all commands once 30+ sessions were open).
+    const sessions = entries.filter((e) => e.kind === "session");
+    const commands = entries.filter((e) => e.kind !== "session");
+    ranked = [...sessions.slice(0, 30), ...commands];
+  } else {
+    ranked = entries
+      .map((e) => ({ e, s: score(q, searchText(e)) }))
+      .filter((x): x is { e: PaletteEntry; s: number } => x.s !== null)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 30)
+      .map((x) => x.e);
+  }
   // Stable group-by-kind: sessions first, commands after, order within each
   // kind preserved (Array.sort is stable on V8).
   filtered = ranked.slice().sort((a, b) => kindRank(a) - kindRank(b));
@@ -122,19 +162,35 @@ function groupLabel(kind: PaletteEntry["kind"]): string {
 
 function renderList(): void {
   list.innerHTML = "";
+  input.removeAttribute("aria-activedescendant");
+  if (filtered.length === 0) {
+    // No-results is a state, not a blank void — name it so the user knows the
+    // search ran and matched nothing (vs. the palette failing to load).
+    const empty = document.createElement("div");
+    empty.className = "palette-empty";
+    empty.setAttribute("role", "status");
+    empty.textContent = "No matching sessions or commands";
+    list.appendChild(empty);
+    return;
+  }
   let lastKind: PaletteEntry["kind"] | null = null;
   filtered.forEach((e, i) => {
     const kind = e.kind ?? "command";
     if (kind !== lastKind) {
       const group = document.createElement("div");
       group.className = "palette-group";
+      group.setAttribute("role", "presentation");
       group.textContent = groupLabel(kind);
       list.appendChild(group);
       lastKind = kind;
     }
     const row = document.createElement("div");
     row.className = "palette-row";
-    row.classList.toggle("selected", i === selected);
+    row.id = `palette-option-${i}`;
+    row.setAttribute("role", "option");
+    const isSelected = i === selected;
+    row.classList.toggle("selected", isSelected);
+    row.setAttribute("aria-selected", isSelected ? "true" : "false");
     // Label stays the first <span> child (test/page-object contract).
     const label = document.createElement("span");
     label.className = "palette-label";
@@ -168,10 +224,15 @@ function renderList(): void {
         kbd.textContent = e.shortcut;
         row.appendChild(kbd);
       } else {
-        const hint = document.createElement("span");
-        hint.className = "palette-hint";
-        hint.textContent = e.hint;
-        row.appendChild(hint);
+        // Only a real description fills the right slot; the "command" filler
+        // hint leaves the row clean.
+        const text = displayHint(e);
+        if (text) {
+          const hint = document.createElement("span");
+          hint.className = "palette-hint";
+          hint.textContent = text;
+          row.appendChild(hint);
+        }
       }
     }
     row.addEventListener("click", () => {
@@ -180,6 +241,13 @@ function renderList(): void {
     });
     list.appendChild(row);
   });
+  const selectedRow = list.querySelector<HTMLElement>(".palette-row.selected");
+  if (selectedRow) {
+    input.setAttribute("aria-activedescendant", selectedRow.id);
+    // Keep arrow-key selection visible past the fold instead of scrolling off
+    // the bottom of the list.
+    selectedRow.scrollIntoView({ block: "nearest" });
+  }
 }
 
 input.addEventListener("input", () => {
@@ -188,6 +256,12 @@ input.addEventListener("input", () => {
 });
 input.addEventListener("keydown", (e) => {
   e.stopPropagation();
+  if (e.key === "Tab") {
+    // The input is the only focusable element in the palette; trap Tab so
+    // focus can't escape to the page behind the modal.
+    e.preventDefault();
+    return;
+  }
   if (e.key === "Escape") closePalette();
   if (e.key === "ArrowDown") {
     selected = Math.min(selected + 1, filtered.length - 1);
@@ -204,6 +278,14 @@ input.addEventListener("keydown", (e) => {
 });
 overlay.addEventListener("click", (e) => {
   if (e.target === overlay) closePalette();
+});
+// Escape at the overlay level as well as on the input, so the palette still
+// closes if focus ever lands outside the field.
+overlay.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    e.stopPropagation();
+    closePalette();
+  }
 });
 
 document.addEventListener("keydown", (e) => {
