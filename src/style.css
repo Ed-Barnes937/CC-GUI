@@ -344,8 +344,9 @@ body {
   gap: 6px;
 }
 
-/* The board's attention summary — same "N waiting on you" as the title-bar
-   pill, warning-toned, hidden at zero. A summary, not a control. */
+/* The board's attention accelerator — same "N waiting on you" as the title-bar
+   pill, warning-toned, hidden at zero. Click / Enter jumps to the next session
+   that needs you (wired below), so it acts as well as summarises. */
 .board-attention {
   padding: 4px 10px;
   font-size: 12px;
@@ -371,6 +372,19 @@ body {
 
 .board-attention.hidden {
   display: none;
+}
+
+/* One accent focus ring for every interactive board control — the filter bar,
+   the card quick-actions, and the ⋯ menu — so keyboard focus is always visible
+   (previously only the attention pill had one). */
+.board-pill:focus-visible,
+.board-new:focus-visible,
+.board-search:focus-visible,
+.board-project-tool:focus-visible,
+.card-action:focus-visible,
+.card-menu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .board-pill {
@@ -603,9 +617,36 @@ body {
   opacity: 0.5;
 }
 
+/* Keyboard focus (roving tabindex): an accent ring outside the card, distinct
+   from the inset ring that marks the docked card below. */
+.agent-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Docked card: the one whose terminal is mounted in the dock. A near-invisible
+   hairline before, so now a strong border plus an inset accent ring — and the
+   `▸ docked` text marker keeps the state legible without relying on colour. */
 .agent-card.selected {
-  border-color: var(--surface2);
+  border-color: var(--border-strong);
   border-left-color: var(--state-color);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Non-color docked marker in the status row — hidden until the card is docked. */
+.card-docked {
+  display: none;
+  margin-left: auto;
+  align-self: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.agent-card.selected .card-docked {
+  display: inline-flex;
 }
 
 .card-header {
@@ -783,6 +824,24 @@ body {
   background: color-mix(in srgb, var(--info) 15%, transparent);
 }
 
+/* Resting tile: the quick-action buttons and the ⋯ menu fade out at rest so a
+   wall of cards reads as status at a glance, and reveal on hover or keyboard
+   focus. Opacity (not display) keeps card height stable — no reflow as the
+   pointer or focus sweeps the column — and the buttons stay in the tab order so
+   they're always keyboard-reachable. */
+.card-actions,
+.card-menu {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.agent-card:hover .card-actions,
+.agent-card:hover .card-menu,
+.agent-card:focus-within .card-actions,
+.agent-card:focus-within .card-menu {
+  opacity: 1;
+}
+
 /* ── Dock: the active session's terminal is re-parented here in board mode. ── */
 #board-dock {
   height: 194px;
@@ -808,7 +867,10 @@ body {
   z-index: 50;
   border: 1px solid var(--border-strong);
   border-radius: 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  /* The fullscreen dock is a modal dialog — the deepest lift in the shadow
+     vocabulary — and its backdrop uses the theme scrim so both track light
+     themes (Latte) instead of a hardcoded black. */
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
 }
 
@@ -816,7 +878,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--scrim);
 }
 
 #board-dock-backdrop.hidden {
