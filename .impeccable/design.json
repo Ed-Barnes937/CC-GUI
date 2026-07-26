@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-24T00:00:00Z",
+  "generatedAt": "2026-07-26T00:00:00Z",
   "title": "Design System: CC-GUI",
   "extensions": {
     "colorMeta": {
@@ -66,17 +66,17 @@
       "name": "Attention Pill",
       "kind": "chip",
       "refersTo": "status-chip",
-      "description": "The warning-toned 'N waiting on you' summary pill; mono, fully rounded.",
-      "html": "<span class=\"ds-pill\">3 waiting on you</span>",
-      "css": ".ds-pill { display: inline-block; font: 400 12px/1 'IBM Plex Mono', monospace; padding: 4px 10px; border-radius: 999px; color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); background: color-mix(in srgb, var(--warning) 12%, transparent); white-space: nowrap; }"
+      "description": "The warning-toned 'N waiting on you' pill; mono, fully rounded, hidden at zero. Also an accelerator — click or Enter jumps to the next session that needs you, cycling the attention queue. The one status pill that acts.",
+      "html": "<span class=\"ds-pill\" role=\"button\" tabindex=\"0\">3 waiting on you</span>",
+      "css": ".ds-pill { display: inline-block; font: 400 12px/1 'IBM Plex Mono', monospace; padding: 4px 10px; border-radius: 999px; color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); background: color-mix(in srgb, var(--warning) 12%, transparent); white-space: nowrap; cursor: pointer; transition: background 0.12s ease; } .ds-pill:hover { background: color-mix(in srgb, var(--warning) 20%, transparent); } .ds-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
     },
     {
       "name": "Session Row (selected)",
       "kind": "custom",
       "refersTo": "session-row",
-      "description": "A session row with the running-state dot and the selected accent left border.",
+      "description": "A session row with the pulsing running-state dot and the selected accent left border. The dot also carries a non-color cue so state survives grayscale: running pulses, waiting/hibernated swap the circle for a ?/☾ glyph, and idle renders as a hollow ring rather than a filled dot.",
       "html": "<div class=\"ds-row ds-row-selected\"><span class=\"ds-dot\"></span><span class=\"ds-row-title\">fix-terminal-path</span><span class=\"ds-row-meta\">2m</span></div>",
-      "css": ".ds-row { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 9px; cursor: pointer; font: 500 13px/1.2 'IBM Plex Sans', sans-serif; color: var(--text); } .ds-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } .ds-row-selected { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left: 2px solid var(--accent); padding-left: 8px; } .ds-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex-shrink: 0; } .ds-row-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-row-meta { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-dim); }"
+      "css": ".ds-row { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 9px; cursor: pointer; font: 500 13px/1.2 'IBM Plex Sans', sans-serif; color: var(--text); } .ds-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } .ds-row-selected { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left: 2px solid var(--accent); padding-left: 8px; } .ds-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex-shrink: 0; animation: ds-dot-pulse 1.6s ease-in-out infinite; } @keyframes ds-dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } } .ds-row-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-row-meta { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-dim); }"
     },
     {
       "name": "Terminal Tab (active)",
@@ -105,7 +105,7 @@
   ],
   "narrative": {
     "northStar": "The Working Shell",
-    "overview": "CC-GUI is the shell a developer sits inside all day to run agentic coding. Its job is to keep many Claude sessions manageable without getting in the way, and to multiply the work happening inside them — the review screen lets you comment on a diff and apply feedback in-place instead of round-tripping through GitHub PRs; the palette and file explorer keep hands on the keyboard. The interface is a quiet frame around session content and the one signal that matters most: what needs you, and what's in progress.\n\nThe system's defining move is that it has no fixed palette. The visual identity is a 21-token semantic contract that any of nineteen built-in editor themes plus user-authored JSON themes can fill. The same contract themes three surfaces in lockstep: the CSS chrome, the xterm terminal palette, and the Shiki diff highlighter. So the brand is not a color; it is the structure — spacing rhythm, mono-for-data discipline, tonal layering, restraint — that stays constant while the developer swaps the skin to match their editor.\n\nThe feel is refined and restrained: tight 0.12s transitions, small radii, 1px hairline borders, and semantic state color used sparingly against a calm neutral ground. Depth is gently layered but never allowed to become a feature.",
+    "overview": "CC-GUI is the shell a developer sits inside all day to run agentic coding. Its job is to keep many Claude sessions manageable without getting in the way, and to multiply the work happening inside them — the review screen lets you comment on a diff and apply feedback in-place instead of round-tripping through GitHub PRs; the palette and file explorer keep hands on the keyboard. The interface is a quiet frame around session content and the one signal that matters most: what needs you, and what's in progress. Oversight of everything at once is secondary — the frame should recede, not demand to be watched.\n\nThe system's defining move is that it has no fixed palette. The visual identity is a 21-token semantic contract that any of nineteen built-in editor themes plus user-authored JSON themes can fill. The same contract themes three surfaces in lockstep: the CSS chrome, the xterm terminal palette, and the Shiki diff highlighter. So the brand is not a color; it is the structure — spacing rhythm, mono-for-data discipline, tonal layering, restraint — that stays constant while the developer swaps the skin to match their editor.\n\nThe feel is refined and restrained: tight 0.12s transitions, small radii, 1px hairline borders, and semantic state color used sparingly against a calm neutral ground. Depth is gently layered but never allowed to become a feature.",
     "keyCharacteristics": [
       "Themeable by contract, not by palette — 21 semantic tokens, 19+ skins, 3 surfaces.",
       "Keyboard-first, dense, native-desktop chrome; no page scroll, fixed shell.",
