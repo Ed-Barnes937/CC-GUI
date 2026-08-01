@@ -12,8 +12,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { openReview, closeReview } from "./review";
 import { openExplorer, closeExplorer, isExplorerOpen } from "./fileExplorer";
-// PROTOTYPE: markdown viewer — delete this import with markdownViewerPrototype.ts
-import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewerPrototype";
+import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewer";
 import { toast, confirmDialog, promptDialog, deleteSessionDialog } from "./toast";
 import { makeResizable, adjustPanelWidth } from "./resize";
 import { showContextMenu, MenuItem } from "./menu";
@@ -1286,9 +1285,8 @@ function openFileExplorer(): void {
   });
 }
 
-// PROTOTYPE: markdown viewer — Cmd+M toggles it over the active session's
-// repo, same capture-phase accel pattern as Cmd+E below. Delete with
-// markdownViewerPrototype.ts.
+// Cmd+M toggles the markdown viewer over the active session's repo, same
+// capture-phase accel pattern as Cmd+E below.
 function openMarkdownViewerForActiveSession(): void {
   const name = activeTerm;
   const s = name
@@ -1300,7 +1298,6 @@ function openMarkdownViewerForActiveSession(): void {
   }
   void openMarkdownViewer({
     sessionId: s.id,
-    rootLabel: groupOf(s.id)?.name ?? s.title,
     focusTerminal: () => terminals.get(name)?.term.focus(),
   });
 }
@@ -4254,8 +4251,7 @@ registerPaletteProvider(() => [
     action: () => commanderChip.click(),
   },
   { label: "Open file explorer", hint: "command", icon: "▤", iconTone: "info", shortcut: "⌘E", action: openFileExplorer },
-  // PROTOTYPE: delete with markdownViewerPrototype.ts
-  { label: "Markdown viewer (prototype)", hint: "command", icon: "◫", iconTone: "info", shortcut: "⌘M", action: openMarkdownViewerForActiveSession },
+  { label: "Markdown viewer", hint: "command", icon: "◫", iconTone: "info", shortcut: "⌘M", action: openMarkdownViewerForActiveSession },
   { label: "Settings", hint: "command", icon: "⚙", iconTone: "dim", shortcut: kb("show_settings"), action: () => void openSettings() },
   { label: "Help", hint: "command", icon: "?", iconTone: "dim", shortcut: kb("show_help"), action: toggleHelp },
 ]);

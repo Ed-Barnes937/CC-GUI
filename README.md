@@ -13,6 +13,7 @@ It embeds `claude-commander` directly (as a library) and drives the same tmux-ba
 - **Cascade** — merge, resume, and abandon stacked sessions; push a stack.
 - **Theming** — 10 built-in themes plus your own custom themes, with a live-preview picker. See [`docs/theming.md`](docs/theming.md).
 - **File explorer** (`Cmd+E`) — keyboard-driven, nnn-style browser of the active session's repo; open a file to drop an `@path` reference into the terminal.
+- **Markdown viewer** (`Cmd+M`) — distraction-free reader for the active session's repo docs (plans, design docs, READMEs), with a fuzzy file picker (`/`) and in-repo link navigation.
 - **Command palette** (`Cmd/Ctrl+K`) — fuzzy-jump to a session or run any command.
 - **Config hot-reload** — picks up `claude-commander` config changes for multi-instance sync.
 
@@ -119,6 +120,8 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | File explorer: move cursor | `↑`/`↓` or `j`/`k` |
 | File explorer: open folder / reference file as `@path` | `Enter` / `→` / `l` |
 | File explorer: up to parent / filter / toggle hidden | `Backspace` / `/` / `.` |
+| Open/close markdown viewer (active session's repo) | `Cmd/Ctrl+M` |
+| Markdown viewer: fuzzy file picker (`↑`/`↓` pick, `Enter` opens) | `/` or click the file name |
 | Terminal: switch to this session's shell | `Ctrl+\` |
 | Terminal: cursor to line start / end | `Cmd+←` / `Cmd+→` |
 | Terminal: delete to line start | `Cmd+Backspace` |

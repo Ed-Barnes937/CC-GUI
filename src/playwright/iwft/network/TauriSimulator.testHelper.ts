@@ -38,7 +38,7 @@ class TauriSimulator {
   private defaultProgram: string;
   private browsePath: string | null;
   private fileTree: Record<string, FsEntry[]>;
-  // PROTOTYPE: markdown viewer — delete with markdownViewerPrototype.ts.
+  // The markdown viewer's fake repo: .md path → content.
   private markdownFiles: Record<string, string>;
   private diffStats: Record<string, string>;
   private openedUrls: string[] = [];
@@ -214,7 +214,6 @@ class TauriSimulator {
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
-      // PROTOTYPE: markdown viewer — delete with markdownViewerPrototype.ts.
       case "list_markdown_files":
         return Object.keys(this.markdownFiles).sort((a, b) =>
           a.toLowerCase().localeCompare(b.toLowerCase()),
