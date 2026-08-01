@@ -115,6 +115,8 @@ fn main() {
             projects::open_in_editor,
             projects::open_external,
             files::list_session_dir,
+            files::list_markdown_files,
+            files::read_session_file,
             review::open_review,
             review::read_review_image,
             review::create_comment,

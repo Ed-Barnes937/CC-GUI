@@ -103,6 +103,81 @@ pub async fn list_session_dir(
     })
 }
 
+// ---------------------------------------------------------------------------
+// PROTOTYPE — markdown viewer. Throwaway commands backing the markdown-viewer
+// UI prototype (src/markdownViewerPrototype.ts). Delete with it.
+// ---------------------------------------------------------------------------
+
+const MD_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", ".git"];
+const MD_MAX_FILES: usize = 500;
+
+/// PROTOTYPE: recursively list every `*.md` under a session's worktree,
+/// skipping dependency/build directories, capped at `MD_MAX_FILES`.
+#[tauri::command]
+pub async fn list_markdown_files(session_id: String) -> Result<Vec<String>, String> {
+    let root = session_root(&session_id).await?;
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.filter_map(|e| e.ok()) {
+            if out.len() >= MD_MAX_FILES {
+                break;
+            }
+            let name = e.file_name().to_string_lossy().into_owned();
+            let path = e.path();
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                if !MD_SKIP_DIRS.contains(&name.as_str())
+                    && (!name.starts_with('.') || name == ".claude")
+                {
+                    stack.push(path);
+                }
+            } else if name.to_lowercase().ends_with(".md") {
+                out.push(rel_to_root(&root, &path));
+            }
+        }
+    }
+    out.sort_by_key(|p| p.to_lowercase());
+    Ok(out)
+}
+
+/// PROTOTYPE: read one file inside a session's worktree (same escape guard as
+/// `list_session_dir`).
+#[tauri::command]
+pub async fn read_session_file(session_id: String, rel_path: String) -> Result<String, String> {
+    let root = session_root(&session_id).await?;
+    let target = root
+        .join(rel_path)
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve path: {e}"))?;
+    if !target.starts_with(&root) {
+        return Err("path is outside the repository".into());
+    }
+    std::fs::read_to_string(&target).map_err(|e| e.to_string())
+}
+
+/// PROTOTYPE: resolve a session's canonicalized worktree root.
+async fn session_root(session_id: &str) -> Result<std::path::PathBuf, String> {
+    let sid = parse_session_id(session_id)?;
+    let svc = service().await?;
+    let worktree = {
+        let state = svc.store().read().await;
+        state
+            .sessions
+            .get(&sid)
+            .map(|s| s.worktree_path.clone())
+            .ok_or("session not found")?
+    };
+    worktree
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve worktree: {e}"))
+}
+
+// ------------------------------------------------------------ end PROTOTYPE
+
 /// `target` relative to `root`, with `/` separators. Empty when equal.
 fn rel_to_root(root: &Path, target: &Path) -> String {
     target
