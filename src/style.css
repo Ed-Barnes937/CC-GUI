@@ -3668,6 +3668,249 @@ body.resizing .row-divider {
   display: none;
 }
 
+/* -------------------------------------------------------- markdown viewer */
+
+#mdv {
+  display: contents; /* children are fixed-position; keep the wrapper boxless */
+}
+
+#mdv.hidden,
+.mdv-picker.hidden {
+  display: none;
+}
+
+.mdv-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font-ui);
+  color: var(--text);
+  outline: none;
+}
+
+/* Search-style file bar: reads as an input so the picker is discoverable. */
+.mdv-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5vh;
+}
+
+.mdv-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 280px;
+}
+
+.mdv-name:hover {
+  border-color: var(--accent);
+}
+
+.mdv-name-icon {
+  color: var(--text-dim);
+}
+
+.mdv-name-text {
+  flex: 1;
+  text-align: left;
+}
+
+.mdv-name-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--chip-faint-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.mdv-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+
+.mdv-close-btn:hover {
+  color: var(--text);
+}
+
+.mdv-picker {
+  width: min(560px, 80vw);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  margin-top: 6px;
+  box-shadow: var(--shadow-popover);
+}
+
+.mdv-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.mdv-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.mdv-row {
+  padding: 5px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.mdv-row:hover {
+  background: var(--row-hover-bg);
+}
+
+.mdv-row.cursor {
+  background: var(--row-selected-bg);
+  color: var(--text);
+}
+
+.mdv-empty {
+  color: var(--text-dim);
+  padding: 24px;
+}
+
+/* Rendered document: a reader column. */
+.mdv-doc {
+  width: min(760px, 90vw);
+  flex: 1;
+  min-height: 0;
+  margin: 16px 0 5vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 48px 64px;
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.mdv-doc h1,
+.mdv-doc h2,
+.mdv-doc h3,
+.mdv-doc h4 {
+  color: var(--text);
+  margin: 1.2em 0 0.5em;
+  line-height: 1.25;
+}
+
+.mdv-doc h1 {
+  font-size: 1.6em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.mdv-doc h2 {
+  font-size: 1.3em;
+}
+
+.mdv-doc h3 {
+  font-size: 1.1em;
+}
+
+.mdv-doc p,
+.mdv-doc ul,
+.mdv-doc ol {
+  margin: 0.6em 0;
+}
+
+.mdv-doc li {
+  margin: 0.25em 0;
+}
+
+.mdv-doc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.mdv-doc a:hover {
+  text-decoration: underline;
+}
+
+.mdv-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-inset);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.mdv-doc pre {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+
+.mdv-doc pre code {
+  background: none;
+  padding: 0;
+}
+
+.mdv-doc blockquote {
+  border-left: 3px solid var(--border-strong);
+  margin: 0.6em 0;
+  padding: 2px 14px;
+  color: var(--text-muted);
+}
+
+.mdv-doc table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+
+.mdv-doc th,
+.mdv-doc td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+}
+
+.mdv-doc th {
+  background: var(--bg-inset);
+}
+
+.mdv-doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+
+.mdv-doc img {
+  max-width: 100%;
+}
+
 /* ------------------------------------------------------------ review view */
 
 #review {

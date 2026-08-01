@@ -103,16 +103,12 @@ pub async fn list_session_dir(
     })
 }
 
-// ---------------------------------------------------------------------------
-// PROTOTYPE — markdown viewer. Throwaway commands backing the markdown-viewer
-// UI prototype (src/markdownViewerPrototype.ts). Delete with it.
-// ---------------------------------------------------------------------------
-
 const MD_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", ".git"];
 const MD_MAX_FILES: usize = 500;
 
-/// PROTOTYPE: recursively list every `*.md` under a session's worktree,
-/// skipping dependency/build directories, capped at `MD_MAX_FILES`.
+/// Recursively list every `*.md` under a session's worktree for the markdown
+/// viewer, skipping dependency/build directories (and hidden directories
+/// except `.claude`, where plan/skill docs live), capped at `MD_MAX_FILES`.
 #[tauri::command]
 pub async fn list_markdown_files(session_id: String) -> Result<Vec<String>, String> {
     let root = session_root(&session_id).await?;
@@ -144,7 +140,7 @@ pub async fn list_markdown_files(session_id: String) -> Result<Vec<String>, Stri
     Ok(out)
 }
 
-/// PROTOTYPE: read one file inside a session's worktree (same escape guard as
+/// Read one file inside a session's worktree (same escape guard as
 /// `list_session_dir`).
 #[tauri::command]
 pub async fn read_session_file(session_id: String, rel_path: String) -> Result<String, String> {
@@ -159,7 +155,7 @@ pub async fn read_session_file(session_id: String, rel_path: String) -> Result<S
     std::fs::read_to_string(&target).map_err(|e| e.to_string())
 }
 
-/// PROTOTYPE: resolve a session's canonicalized worktree root.
+/// Resolve a session's canonicalized worktree root.
 async fn session_root(session_id: &str) -> Result<std::path::PathBuf, String> {
     let sid = parse_session_id(session_id)?;
     let svc = service().await?;
@@ -175,8 +171,6 @@ async fn session_root(session_id: &str) -> Result<std::path::PathBuf, String> {
         .canonicalize()
         .map_err(|e| format!("cannot resolve worktree: {e}"))
 }
-
-// ------------------------------------------------------------ end PROTOTYPE
 
 /// `target` relative to `root`, with `/` separators. Empty when equal.
 fn rel_to_root(root: &Path, target: &Path) -> String {
