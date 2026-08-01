@@ -38,6 +38,8 @@ class TauriSimulator {
   private defaultProgram: string;
   private browsePath: string | null;
   private fileTree: Record<string, FsEntry[]>;
+  // PROTOTYPE: markdown viewer — delete with markdownViewerPrototype.ts.
+  private markdownFiles: Record<string, string>;
   private diffStats: Record<string, string>;
   private openedUrls: string[] = [];
   // Bytes the frontend wrote to a PTY (write_pty) — the file explorer's @path
@@ -58,6 +60,7 @@ class TauriSimulator {
     this.defaultProgram = seed.defaultProgram ?? "claude";
     this.browsePath = seed.browsePath ?? null;
     this.fileTree = seed.fileTree ?? {};
+    this.markdownFiles = seed.markdownFiles ?? {};
     this.diffStats = seed.diffStats ?? {};
     this.comments = {};
     this.reviewed = {};
@@ -211,6 +214,16 @@ class TauriSimulator {
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
+      // PROTOTYPE: markdown viewer — delete with markdownViewerPrototype.ts.
+      case "list_markdown_files":
+        return Object.keys(this.markdownFiles).sort((a, b) =>
+          a.toLowerCase().localeCompare(b.toLowerCase()),
+        );
+      case "read_session_file": {
+        const content = this.markdownFiles[args.relPath as string];
+        if (content === undefined) throw `cannot resolve path: ${args.relPath}`;
+        return content;
+      }
       case "open_external":
         this.openedUrls.push(args.url as string);
         return null;
