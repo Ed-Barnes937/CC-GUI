@@ -43,7 +43,7 @@ re-derives `PATH` from the login shell at startup (so child processes like
 
 - **`main.ts`** — boot + wiring: theme init, terminals, palette commands, session rendering, window events.
 - **`palette.ts`** — `Cmd/Ctrl+K` fuzzy command/session palette.
-- **`review.ts`** — diff rendering + inline review comments (Shiki-highlighted).
+- **`review.ts`** — diff rendering + inline review comments (via `@pierre/diffs`).
 - **`theme.ts`** — GUI-owned theming: `Theme` type, built-in + custom registry, `applyTheme`/`onThemeChange`/`setMode`/`followSystem`. Kept Tauri-free so it's also imported by the no-flash boot plugin in `vite.config.ts`.
 - **`themeModal.ts`** — the live-preview theme picker.
 - **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, config UI.

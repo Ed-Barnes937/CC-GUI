@@ -118,7 +118,7 @@ export function splitComments(
 
 /** Where the inline composer hangs for a selection-end line: deletions keep
  *  their old number, everything else anchors on the new number. */
-export function composerAnchor(line: DiffLine): { side: PierreSide; lineNumber: number } {
+export function lineAnchor(line: DiffLine): { side: PierreSide; lineNumber: number } {
   return line.origin === "deletion"
     ? { side: "deletions", lineNumber: line.old_lineno! }
     : { side: "additions", lineNumber: line.new_lineno! };

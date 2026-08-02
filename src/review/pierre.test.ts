@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Comment, FileDiff, Hunk } from "./model";
 import {
   buildPatch,
-  composerAnchor,
+  lineAnchor,
   selectionToFlatRange,
   splitComments,
 } from "./pierre";
@@ -265,17 +265,17 @@ describe("splitComments", () => {
   });
 });
 
-// ------------------------------------------------------------ composerAnchor
+// ------------------------------------------------------------ lineAnchor
 
-describe("composerAnchor", () => {
+describe("lineAnchor", () => {
   it("anchors on the new number for additions and context lines", () => {
     const lines = file().hunks[0].lines;
-    expect(composerAnchor(lines[2])).toEqual({ side: "additions", lineNumber: 2 });
-    expect(composerAnchor(lines[4])).toEqual({ side: "additions", lineNumber: 4 });
+    expect(lineAnchor(lines[2])).toEqual({ side: "additions", lineNumber: 2 });
+    expect(lineAnchor(lines[4])).toEqual({ side: "additions", lineNumber: 4 });
   });
 
   it("anchors on the old number for deletion lines", () => {
     const lines = file().hunks[0].lines;
-    expect(composerAnchor(lines[1])).toEqual({ side: "deletions", lineNumber: 2 });
+    expect(lineAnchor(lines[1])).toEqual({ side: "deletions", lineNumber: 2 });
   });
 });

@@ -4,7 +4,6 @@ import type {
   FileDiff as PierreFileDiff,
   FileDiffMetadata,
   FileDiffOptions,
-  SelectedLineRange,
 } from "@pierre/diffs";
 import { noTextAssist } from "./dom";
 import { makeResizable } from "./resize";
@@ -24,7 +23,7 @@ import {
 } from "./review/model";
 import {
   buildPatch,
-  composerAnchor,
+  lineAnchor,
   flatLines,
   selectionToFlatRange,
   splitComments,
@@ -59,7 +58,8 @@ const registeredCustomThemes = new Set<string>();
 /**
  * The Shiki theme name Pierre should render with. Built-ins carry a bundled id
  * Pierre's pinned Shiki knows; a custom theme's TextMate object is registered
- * under its id (once — validateTheme forces the object's name to the id).
+ * under its id (once per app run — validateTheme forces the object's name to
+ * the id, and the old renderer froze loaded themes per run the same way).
  */
 function pierreThemeName(mod: PierreModule, theme: Theme): string {
   const shiki = theme.shiki;
@@ -638,9 +638,9 @@ function pierreOptions(mod: PierreModule): FileDiffOptions<AnnotationMeta> {
     theme: pierreThemeName(mod, theme),
     themeType: theme.appearance,
     enableLineSelection: true,
-    onLineSelected: handleLineSelected,
     // Pierre's native selection lives on the number gutter (click/drag there);
     // clicking anywhere on a line keeps working like the old renderer did.
+    onLineSelected: applySelection,
     onLineClick: handleLineClick,
     renderAnnotation: (a: DiffLineAnnotation<AnnotationMeta>) => {
       const meta = a.metadata;
@@ -678,11 +678,6 @@ function applySelection(range: PierreSelection | null): void {
   const flat = file ? selectionToFlatRange(file, selection) : null;
   if (flat) cursor = flat[1];
   renderDiff();
-}
-
-/** Pierre's committed gutter selection (click or drag on the line numbers). */
-function handleLineSelected(range: SelectedLineRange | null): void {
-  applySelection(range);
 }
 
 /** A click on the line itself: select it for a comment (shift-click extends,
@@ -743,10 +738,10 @@ async function renderTextDiff(file: FileDiff): Promise<void> {
   }));
 
   // The composer hangs off the bottom-most selected line as one more annotation.
-  const flat = selectionToFlatRange(file, selection ?? { start: -1, end: -1 });
-  if (selection && flat) {
+  const flat = selection ? selectionToFlatRange(file, selection) : null;
+  if (flat) {
     const endLine = flatLines(file)[flat[1]];
-    const anchor = composerAnchor(endLine);
+    const anchor = lineAnchor(endLine);
     lineAnnotations.push({
       side: anchor.side,
       lineNumber: anchor.lineNumber,
@@ -787,7 +782,7 @@ function applyCursor(file: FileDiff): void {
     pierre.setEditorActiveLine(null);
     return;
   }
-  const anchor = composerAnchor(line);
+  const anchor = lineAnchor(line);
   pierre.setEditorActiveLine(anchor.lineNumber, { side: anchor.side });
 }
 
@@ -820,7 +815,7 @@ function openComposerAtCursor(): void {
   if (cursor === null || !file) return;
   const line = flatLines(file)[cursor];
   if (!line) return;
-  const anchor = composerAnchor(line);
+  const anchor = lineAnchor(line);
   selection = { start: anchor.lineNumber, side: anchor.side, end: anchor.lineNumber };
   renderDiff(); // the composer renders after the row and autofocuses its textarea
 }
