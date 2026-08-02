@@ -223,12 +223,13 @@ class TauriSimulator {
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
       case "list_markdown_files": {
-        // Mirrors the backend: newest-first, cap applied after sorting, total
-        // reported so the picker can show its truncation row.
+        // Mirrors the backend (files.rs MD_MAX_FILES): newest-first, cap
+        // applied after sorting, total reported for the truncation row.
+        const MD_MAX_FILES = 500;
         const all = Object.entries(this.markdownFiles)
           .map(([path, f]) => ({ path, mtime: f.mtime }))
           .sort((a, b) => b.mtime - a.mtime || a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
-        return { files: all.slice(0, 500), total: all.length };
+        return { files: all.slice(0, MD_MAX_FILES), total: all.length };
       }
       case "read_session_file": {
         const file = this.markdownFiles[args.relPath as string];

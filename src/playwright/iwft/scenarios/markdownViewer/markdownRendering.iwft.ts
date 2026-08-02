@@ -71,3 +71,28 @@ test("fenced code blocks are Shiki-highlighted", async ({ fileExplorer }) => {
   await expect(shiki).toContainText("fn main() {}");
   expect(await shiki.locator("code span[style*='color']").count()).toBeGreaterThan(0);
 });
+
+test("highlighting follows a theme switch", async ({ fileExplorer }) => {
+  const page = fileExplorer.paneLocator().page();
+  await page.keyboard.press("Meta+m");
+  const shiki = page.locator("#mdv .mdv-doc pre.shiki");
+  await expect(shiki).toHaveCount(1);
+  const before = await shiki.getAttribute("style"); // Shiki inlines the theme colors
+
+  // Commit a different dark theme via the palette-launched picker (same path
+  // as theme.iwft.ts) while the viewer stays open.
+  await page.keyboard.press("ControlOrMeta+k");
+  const paletteInput = page.locator("#palette input");
+  await paletteInput.fill("Set dark theme");
+  await paletteInput.press("Enter");
+  await expect(page.locator(".theme-modal")).toBeVisible();
+  await page.keyboard.press("ArrowDown"); // Mocha → Frappé
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".theme-modal")).toBeHidden();
+
+  // The open document re-rendered its code block in the new theme.
+  await expect(page.locator("#mdv .mdv-doc pre.shiki")).not.toHaveAttribute(
+    "style",
+    before ?? "",
+  );
+});

@@ -178,8 +178,13 @@ function renderDoc(path: string, source: string): void {
         return;
       }
       const target = resolveRelative(path, href);
-      if (target && files.some((f) => f.path === target)) void showFile(target);
-      else toast("only in-repo .md links open here");
+      // A truncated listing can't vouch for every in-repo doc, so past the cap
+      // any resolvable .md is worth attempting (showFile toasts if unreadable).
+      if (target && (files.some((f) => f.path === target) || files.length < total)) {
+        void showFile(target);
+      } else {
+        toast("only in-repo .md links open here");
+      }
     });
   });
   void hydrateImages(path);
@@ -195,9 +200,14 @@ onThemeChange(() => {
   doc.scrollTop = top;
 });
 
+/** True when `s` starts with a URL scheme (http:, https:, data:, mailto:…). */
+function hasScheme(s: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(s);
+}
+
 /** Resolve `href` against the directory of `from`; null if not an in-repo .md. */
 function resolveRelative(from: string, href: string): string | null {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  if (hasScheme(href)) return null;
   const clean = href.split("#")[0];
   if (!clean.toLowerCase().endsWith(".md")) return null;
   return joinRepoPath(from, clean);
@@ -238,7 +248,7 @@ async function hydrateImages(docPath: string): Promise<void> {
   const imgs = Array.from(doc.querySelectorAll<HTMLImageElement>("img"));
   for (const img of imgs) {
     const src = img.getAttribute("src") ?? "";
-    if (/^[a-z][a-z0-9+.-]*:/i.test(src)) continue; // http(s)/data: — untouched
+    if (hasScheme(src)) continue; // http(s)/data: — untouched
     const relPath = joinRepoPath(docPath, src);
     const mime = IMG_MIME[relPath.split(".").pop()?.toLowerCase() ?? ""];
     let dataUri = imageCache.get(relPath);
