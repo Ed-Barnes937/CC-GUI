@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use base64::Engine;
 use serde::Serialize;
 
 use crate::service::{parse_session_id, service};
@@ -105,23 +106,39 @@ pub async fn list_session_dir(
 
 const MD_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", ".git"];
 const MD_MAX_FILES: usize = 500;
+const MD_MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// One markdown file in the viewer's listing.
+#[derive(Serialize)]
+pub struct MarkdownFile {
+    path: String,
+    /// Seconds since the Unix epoch; 0 when the mtime is unavailable.
+    mtime: u64,
+}
+
+/// The markdown viewer's file listing, newest-first.
+#[derive(Serialize)]
+pub struct MarkdownListing {
+    files: Vec<MarkdownFile>,
+    /// Total matches before the cap; greater than `files.len()` when truncated.
+    total: usize,
+}
 
 /// Recursively list every `*.md` under a session's worktree for the markdown
 /// viewer, skipping dependency/build directories (and hidden directories
-/// except `.claude`, where plan/skill docs live), capped at `MD_MAX_FILES`.
+/// except `.claude`, where plan/skill docs live). Sorted newest-first by
+/// mtime; the `MD_MAX_FILES` cap is applied after sorting so truncation drops
+/// the stalest files, and `total` lets the picker say how many were cut.
 #[tauri::command]
-pub async fn list_markdown_files(session_id: String) -> Result<Vec<String>, String> {
+pub async fn list_markdown_files(session_id: String) -> Result<MarkdownListing, String> {
     let root = session_root(&session_id).await?;
-    let mut out = Vec::new();
+    let mut files = Vec::new();
     let mut stack = vec![root.clone()];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
         for e in entries.filter_map(|e| e.ok()) {
-            if out.len() >= MD_MAX_FILES {
-                break;
-            }
             let name = e.file_name().to_string_lossy().into_owned();
             let path = e.path();
             let Ok(ft) = e.file_type() else { continue };
@@ -132,12 +149,28 @@ pub async fn list_markdown_files(session_id: String) -> Result<Vec<String>, Stri
                     stack.push(path);
                 }
             } else if name.to_lowercase().ends_with(".md") {
-                out.push(rel_to_root(&root, &path));
+                let mtime = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                files.push(MarkdownFile {
+                    path: rel_to_root(&root, &path),
+                    mtime,
+                });
             }
         }
     }
-    out.sort_by_key(|p| p.to_lowercase());
-    Ok(out)
+    files.sort_by(|a, b| {
+        b.mtime
+            .cmp(&a.mtime)
+            .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
+    });
+    let total = files.len();
+    files.truncate(MD_MAX_FILES);
+    Ok(MarkdownListing { files, total })
 }
 
 /// Read one file inside a session's worktree (same escape guard as
@@ -153,6 +186,28 @@ pub async fn read_session_file(session_id: String, rel_path: String) -> Result<S
         return Err("path is outside the repository".into());
     }
     std::fs::read_to_string(&target).map_err(|e| e.to_string())
+}
+
+/// Read one image inside a session's worktree and return its bytes base64-
+/// encoded (the frontend builds a `data:` URI; mirrors `read_review_image`).
+/// Same escape guard as `read_session_file`; files over `MD_MAX_IMAGE_BYTES`
+/// are rejected so a stray huge asset can't balloon the webview.
+#[tauri::command]
+pub async fn read_session_image(session_id: String, rel_path: String) -> Result<String, String> {
+    let root = session_root(&session_id).await?;
+    let target = root
+        .join(rel_path)
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve path: {e}"))?;
+    if !target.starts_with(&root) {
+        return Err("path is outside the repository".into());
+    }
+    let len = std::fs::metadata(&target).map_err(|e| e.to_string())?.len();
+    if len > MD_MAX_IMAGE_BYTES {
+        return Err(format!("image too large ({len} bytes)"));
+    }
+    let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 /// Resolve a session's canonicalized worktree root.

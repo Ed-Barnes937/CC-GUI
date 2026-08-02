@@ -117,6 +117,7 @@ fn main() {
             files::list_session_dir,
             files::list_markdown_files,
             files::read_session_file,
+            files::read_session_image,
             review::open_review,
             review::read_review_image,
             review::create_comment,

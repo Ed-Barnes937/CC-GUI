@@ -38,8 +38,10 @@ class TauriSimulator {
   private defaultProgram: string;
   private browsePath: string | null;
   private fileTree: Record<string, FsEntry[]>;
-  // The markdown viewer's fake repo: .md path → content.
-  private markdownFiles: Record<string, string>;
+  // The markdown viewer's fake repo: .md path → content + mtime.
+  private markdownFiles: Record<string, { content: string; mtime: number }>;
+  // Repo-relative image path → base64 bytes (read_session_image).
+  private sessionImages: Record<string, string>;
   private diffStats: Record<string, string>;
   private openedUrls: string[] = [];
   // Bytes the frontend wrote to a PTY (write_pty) — the file explorer's @path
@@ -60,7 +62,13 @@ class TauriSimulator {
     this.defaultProgram = seed.defaultProgram ?? "claude";
     this.browsePath = seed.browsePath ?? null;
     this.fileTree = seed.fileTree ?? {};
-    this.markdownFiles = seed.markdownFiles ?? {};
+    this.markdownFiles = Object.fromEntries(
+      Object.entries(seed.markdownFiles ?? {}).map(([path, v]) => [
+        path,
+        typeof v === "string" ? { content: v, mtime: 0 } : v,
+      ]),
+    );
+    this.sessionImages = seed.sessionImages ?? {};
     this.diffStats = seed.diffStats ?? {};
     this.comments = {};
     this.reviewed = {};
@@ -214,14 +222,23 @@ class TauriSimulator {
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
-      case "list_markdown_files":
-        return Object.keys(this.markdownFiles).sort((a, b) =>
-          a.toLowerCase().localeCompare(b.toLowerCase()),
-        );
+      case "list_markdown_files": {
+        // Mirrors the backend: newest-first, cap applied after sorting, total
+        // reported so the picker can show its truncation row.
+        const all = Object.entries(this.markdownFiles)
+          .map(([path, f]) => ({ path, mtime: f.mtime }))
+          .sort((a, b) => b.mtime - a.mtime || a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
+        return { files: all.slice(0, 500), total: all.length };
+      }
       case "read_session_file": {
-        const content = this.markdownFiles[args.relPath as string];
-        if (content === undefined) throw `cannot resolve path: ${args.relPath}`;
-        return content;
+        const file = this.markdownFiles[args.relPath as string];
+        if (file === undefined) throw `cannot resolve path: ${args.relPath}`;
+        return file.content;
+      }
+      case "read_session_image": {
+        const bytes = this.sessionImages[args.relPath as string];
+        if (bytes === undefined) throw `cannot resolve path: ${args.relPath}`;
+        return bytes;
       }
       case "open_external":
         this.openedUrls.push(args.url as string);
