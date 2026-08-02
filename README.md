@@ -139,6 +139,7 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Project shell | `$` on the project |
 | Switch sidebar grouping (Sections / Projects / Status) | `GROUP BY` control |
 | Move a session to a section | drag its row onto a section header (drop on *In Progress* to unpin) |
+| Review: select lines for a comment | click a line (shift-click extends), or click/drag the line numbers |
 | Review: move the line cursor (comment without the mouse) | `j` / `k` |
 | Review: comment the cursor line | `Enter` or `c` |
 | Save a review comment | `Cmd/Ctrl+Enter` |

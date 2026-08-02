@@ -25,8 +25,11 @@ export class ReviewPanePageObject extends AppPageObject {
     });
   }
 
+  /** A rendered diff line. Pierre draws rows inside the <diffs-container>
+   *  shadow root; Playwright's CSS engine pierces it, and `[data-line]` marks
+   *  each row's content element. */
   private line(text: string): Locator {
-    return this.diff.locator(".diff-line", { hasText: text });
+    return this.diff.locator("[data-line]", { hasText: text });
   }
 
   /** Click a diff line to start a single-line comment selection. */
@@ -88,9 +91,10 @@ export class ReviewPanePageObject extends AppPageObject {
     return this.step(`pressKey: ${key}`, () => this.page.keyboard.press(key));
   }
 
-  /** The keyboard line cursor's ring row. */
+  /** The keyboard line cursor — Pierre's active-line decoration on the row's
+   *  content element (the attribute also lands on the gutter cell). */
   cursorLine(): Locator {
-    return this.diff.locator(".diff-line.cursor");
+    return this.diff.locator("[data-line][data-editor-active-line]");
   }
 
   /** The open comment composer's textarea. */

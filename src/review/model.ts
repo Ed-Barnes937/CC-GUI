@@ -121,20 +121,6 @@ export function buildDraft(lines: DiffLine[]): Draft | null {
   };
 }
 
-/** Comments for `path`, keyed by `${side}:${end-of-range lineno}` — the anchor
- *  each comment renders against. */
-export function commentsByAnchor(comments: Comment[], path: string): Map<string, Comment[]> {
-  const map = new Map<string, Comment[]>();
-  for (const c of comments) {
-    if (c.file !== path) continue;
-    const key = `${c.side}:${c.line_range[1]}`;
-    const list = map.get(key) ?? [];
-    list.push(c);
-    map.set(key, list);
-  }
-  return map;
-}
-
 export function describeOutcome(o: ApplyOutcome): string {
   switch (o.outcome) {
     case "nothing":
