@@ -1,18 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createOnigurumaEngine } from "@shikijs/engine-oniguruma";
-import {
-  createHighlighterCore,
-  type HighlighterCore,
-  type LanguageInput,
-  type ThemeInput,
-} from "shiki/core";
+import type {
+  DiffLineAnnotation,
+  FileDiff as PierreFileDiff,
+  FileDiffMetadata,
+  FileDiffOptions,
+  SelectedLineRange,
+} from "@pierre/diffs";
 import { noTextAssist } from "./dom";
 import { makeResizable } from "./resize";
 import { toast } from "./toast";
 import { currentTheme, onThemeChange, type Theme } from "./theme";
 import {
   buildDraft,
-  commentsByAnchor,
   describeOutcome,
   displayPath,
   imageMime,
@@ -23,173 +22,73 @@ import {
   type FileDiff,
   type ReviewSnapshot,
 } from "./review/model";
+import {
+  buildPatch,
+  composerAnchor,
+  flatLines,
+  selectionToFlatRange,
+  splitComments,
+  type PierreSelection,
+} from "./review/pierre";
 
-// ------------------------------------------------------- syntax highlighting
+// ------------------------------------------------------------ pierre renderer
+//
+// Text diffs render through @pierre/diffs (unified view, bar indicators,
+// word-level inline diffs, Shiki highlighting — see docs/adr/0001). The module
+// is import()ed on first review open so its highlighter and lazy language
+// chunks stay out of the main bundle. Image diffs and stranded-comment
+// sections keep their custom rendering below.
 
-type ThemedToken = { content: string; color?: string };
+type PierreModule = typeof import("@pierre/diffs");
 
-const EXT_LANG: Record<string, string> = {
-  rs: "rust",
-  ts: "typescript",
-  tsx: "tsx",
-  js: "javascript",
-  jsx: "jsx",
-  mjs: "javascript",
-  py: "python",
-  go: "go",
-  rb: "ruby",
-  java: "java",
-  kt: "kotlin",
-  swift: "swift",
-  c: "c",
-  h: "c",
-  cpp: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  css: "css",
-  scss: "scss",
-  html: "html",
-  json: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  md: "markdown",
-  sh: "shellscript",
-  bash: "shellscript",
-  zsh: "shellscript",
-  sql: "sql",
-  xml: "xml",
-  vue: "vue",
-  svelte: "svelte",
-};
+let pierrePromise: Promise<PierreModule> | null = null;
 
-// Fine-grained Shiki loaders: we bundle only the languages EXT_LANG can name and
-// the theme ids the built-in registry uses. Importing the full "shiki" bundle
-// instead emits a lazy chunk for every one of Shiki's ~270 langs and ~60 themes
-// (almost all unused). Each lang module inlines its embedded grammars (e.g. vue →
-// html/css/ts), so loading one is self-contained.
-const LANG_LOADERS: Record<string, LanguageInput> = {
-  rust: () => import("@shikijs/langs/rust"),
-  typescript: () => import("@shikijs/langs/typescript"),
-  tsx: () => import("@shikijs/langs/tsx"),
-  javascript: () => import("@shikijs/langs/javascript"),
-  jsx: () => import("@shikijs/langs/jsx"),
-  python: () => import("@shikijs/langs/python"),
-  go: () => import("@shikijs/langs/go"),
-  ruby: () => import("@shikijs/langs/ruby"),
-  java: () => import("@shikijs/langs/java"),
-  kotlin: () => import("@shikijs/langs/kotlin"),
-  swift: () => import("@shikijs/langs/swift"),
-  c: () => import("@shikijs/langs/c"),
-  cpp: () => import("@shikijs/langs/cpp"),
-  csharp: () => import("@shikijs/langs/csharp"),
-  css: () => import("@shikijs/langs/css"),
-  scss: () => import("@shikijs/langs/scss"),
-  html: () => import("@shikijs/langs/html"),
-  json: () => import("@shikijs/langs/json"),
-  yaml: () => import("@shikijs/langs/yaml"),
-  toml: () => import("@shikijs/langs/toml"),
-  markdown: () => import("@shikijs/langs/markdown"),
-  shellscript: () => import("@shikijs/langs/shellscript"),
-  sql: () => import("@shikijs/langs/sql"),
-  xml: () => import("@shikijs/langs/xml"),
-  vue: () => import("@shikijs/langs/vue"),
-  svelte: () => import("@shikijs/langs/svelte"),
-};
-
-const THEME_LOADERS: Record<string, ThemeInput> = {
-  "catppuccin-mocha": () => import("@shikijs/themes/catppuccin-mocha"),
-  "catppuccin-latte": () => import("@shikijs/themes/catppuccin-latte"),
-  "catppuccin-frappe": () => import("@shikijs/themes/catppuccin-frappe"),
-  "catppuccin-macchiato": () => import("@shikijs/themes/catppuccin-macchiato"),
-  "tokyo-night": () => import("@shikijs/themes/tokyo-night"),
-  "one-dark-pro": () => import("@shikijs/themes/one-dark-pro"),
-  dracula: () => import("@shikijs/themes/dracula"),
-  nord: () => import("@shikijs/themes/nord"),
-  "github-light": () => import("@shikijs/themes/github-light"),
-  "solarized-light": () => import("@shikijs/themes/solarized-light"),
-};
-
-let highlighterPromise: Promise<HighlighterCore> | null = null;
-
-function getHighlighter() {
-  // Languages and themes load on demand (loadLanguage / ensureShikiTheme) rather
-  // than up front: built-ins are bundled ids, custom themes supply a full TextMate
-  // object at runtime, so the set isn't known when the highlighter is created.
-  highlighterPromise ??= createHighlighterCore({
-    themes: [],
-    langs: [],
-    engine: createOnigurumaEngine(import("shiki/wasm")),
-  });
-  return highlighterPromise;
+function loadPierre(): Promise<PierreModule> {
+  pierrePromise ??= import("@pierre/diffs");
+  return pierrePromise;
 }
 
-// Shiki language ids already registered in the highlighter, so we never double-load.
-const loadedLangs = new Set<string>();
+/** Annotation payloads hung off diff lines: a saved comment card (the Comment
+ *  itself — reference-stable per snapshot, so Pierre reuses the element), or
+ *  the composer (carries its flat range so a selection change re-renders it). */
+type AnnotationMeta = Comment | { kind: "composer"; start: number; end: number };
 
-// Shiki theme names already registered in the highlighter, so we never double-load.
-const loadedThemes = new Set<string>();
+/** Custom-theme names already registered with Pierre's highlighter. */
+const registeredCustomThemes = new Set<string>();
 
 /**
- * Ensure the given theme's Shiki theme is loaded, and return the name to pass to
- * codeToTokens. A built-in's `shiki` is a bundled id (loaded by string); a custom
- * theme's is a full TextMate object whose `name` validateTheme forced to the theme
- * id. Keyed by that name so repeated renders reuse the already-loaded theme.
+ * The Shiki theme name Pierre should render with. Built-ins carry a bundled id
+ * Pierre's pinned Shiki knows; a custom theme's TextMate object is registered
+ * under its id (once — validateTheme forces the object's name to the id).
  */
-async function ensureShikiTheme(hl: HighlighterCore, theme: Theme): Promise<string> {
+function pierreThemeName(mod: PierreModule, theme: Theme): string {
   const shiki = theme.shiki;
-  const name = typeof shiki === "string" ? shiki : (shiki.name ?? theme.id);
-  if (!loadedThemes.has(name)) {
-    // A built-in id loads via its bundled loader; a custom theme's TextMate object
-    // is passed straight through.
-    await hl.loadTheme(typeof shiki === "string" ? THEME_LOADERS[shiki] : shiki);
-    loadedThemes.add(name);
+  if (typeof shiki === "string") return shiki;
+  const name = shiki.name ?? theme.id;
+  if (!registeredCustomThemes.has(name)) {
+    mod.registerCustomTheme(name, () => Promise.resolve(shiki));
+    registeredCustomThemes.add(name);
   }
   return name;
 }
 
-/** Per-file token cache: hunk index → line index → tokens. Reset on refresh. */
-const tokenCache = new Map<string, ThemedToken[][][] | null>();
+/** Per-file parsed patch cache (path → Pierre metadata). Reset on refresh so a
+ *  new snapshot re-parses; null marks a file Pierre couldn't parse. */
+const parsedCache = new Map<string, FileDiffMetadata | null>();
+
+function parsedFile(mod: PierreModule, file: FileDiff): FileDiffMetadata | null {
+  const path = displayPath(file);
+  let meta = parsedCache.get(path);
+  if (meta === undefined) {
+    meta = mod.parsePatchFiles(buildPatch(file))[0]?.files[0] ?? null;
+    parsedCache.set(path, meta);
+  }
+  return meta;
+}
 
 /** Image data-URL cache, keyed by `${path}\0${side}`. Reset on refresh so a new
  *  snapshot re-reads the bytes; avoids re-fetching on theme change / re-render. */
 const imageCache = new Map<string, string>();
-
-/**
- * Tokenize a file's hunks with shiki (language from the extension). Each hunk
- * is highlighted as one block so multi-line constructs mostly survive; the
- * missing cross-hunk context is an accepted approximation. Returns null when
- * the language is unknown or shiki fails — callers fall back to plain text.
- */
-async function prepareHighlights(file: FileDiff): Promise<void> {
-  const path = displayPath(file);
-  if (tokenCache.has(path)) return;
-  const ext = path.split(".").pop() ?? "";
-  const lang = EXT_LANG[ext];
-  if (!lang) {
-    tokenCache.set(path, null);
-    return;
-  }
-  try {
-    const hl = await getHighlighter();
-    if (!loadedLangs.has(lang)) {
-      await hl.loadLanguage(LANG_LOADERS[lang]);
-      loadedLangs.add(lang);
-    }
-    const themeName = await ensureShikiTheme(hl, currentTheme());
-    const hunks = file.hunks.map((hunk) => {
-      const code = hunk.lines.map((l) => l.content).join("\n");
-      const result = hl.codeToTokens(code, { lang, theme: themeName });
-      const tokens = result.tokens as ThemedToken[][];
-      // Token rows must map 1:1 onto hunk lines; on any drift (e.g. line-
-      // ending normalization) fall back to plain text rather than misalign.
-      return tokens.length === hunk.lines.length ? tokens : [];
-    });
-    tokenCache.set(path, hunks);
-  } catch {
-    tokenCache.set(path, null);
-  }
-}
 
 const reviewEl = document.querySelector<HTMLDivElement>("#review")!;
 const titleEl = document.querySelector<HTMLSpanElement>("#review-title")!;
@@ -212,15 +111,15 @@ let selectedFile: string | null = null;
 // Display paths of files marked reviewed (read); mirrors the persisted store.
 let reviewed = new Set<string>();
 
-// Line selection for a new comment: inclusive index range into the rendered
-// (selectable) lines of the current file, in click order.
-let selection: { anchor: number; head: number } | null = null;
+// Line selection for a new comment, in Pierre's line-number semantics (side +
+// number per endpoint). The flat-line range is derived on demand.
+let selection: PierreSelection | null = null;
 let draftText = ""; // survives re-renders while extending the selection
 let applying = false;
 
-// Keyboard cursor: index into the current file's flat lines. Drives the
-// focus ring and the Enter/`c` "comment here" shortcut, so the diff is
-// reviewable without a mouse. Null until the first j/k or line click.
+// Keyboard cursor: index into the current file's flat lines. Rendered through
+// Pierre's active-line decoration, so the diff is reviewable without a mouse.
+// Null until the first j/k.
 let cursor: number | null = null;
 
 // Apply is irreversible (it hands the comments to the agent), so the button
@@ -233,6 +132,21 @@ let armTimer: number | null = null;
 // instead of dropping it to <body>.
 let restoreFocus: HTMLElement | null = null;
 
+// The live Pierre component + its mount point, kept for the lifetime of an
+// open review so re-renders (annotations, theme) preserve scroll and state.
+let pierre: PierreFileDiff<AnnotationMeta> | null = null;
+let pierreHolder: HTMLDivElement | null = null;
+
+// Monotonic render token: renderTextDiff awaits the module load, so a stale
+// call (file switched, review closed) must not clobber a newer render.
+let renderSeq = 0;
+
+function teardownPierre(): void {
+  pierre?.cleanUp();
+  pierre = null;
+  pierreHolder = null;
+}
+
 export async function openReview(id: string, title: string): Promise<void> {
   sessionId = id;
   restoreFocus = document.activeElement as HTMLElement | null;
@@ -242,6 +156,7 @@ export async function openReview(id: string, title: string): Promise<void> {
   clearSelection();
   disarm();
   filesEl.innerHTML = "";
+  teardownPierre();
   diffEl.innerHTML = '<div class="review-empty">Loading…</div>';
   reviewEl.classList.remove("hidden");
   reviewEl.focus(); // move focus into the dialog so keys and SR land here
@@ -255,6 +170,7 @@ async function refresh(): Promise<void> {
   try {
     snap = await invoke<ReviewSnapshot>("open_review", { id });
   } catch (e) {
+    teardownPierre();
     diffEl.innerHTML = "";
     const err = document.createElement("div");
     err.className = "review-empty error";
@@ -266,7 +182,7 @@ async function refresh(): Promise<void> {
   if (sessionId !== id) return; // closed or switched while loading
   snapshot = snap;
   reviewed = new Set(snap.reviewed);
-  tokenCache.clear();
+  parsedCache.clear();
   imageCache.clear();
   baseEl.textContent = `vs ${snap.base}`;
   // Keep the selection if it still points at a diff file or a stranded file
@@ -282,29 +198,13 @@ async function refresh(): Promise<void> {
   renderFiles();
   renderDiff();
   renderApply();
-  highlightCurrentFile();
 }
 
-/** Tokenize the selected file in the background, then re-render with color. */
-function highlightCurrentFile(): void {
-  const file = currentFile();
-  if (!file || tokenCache.has(displayPath(file))) return;
-  const path = displayPath(file);
-  void prepareHighlights(file).then(() => {
-    // Still looking at the same file once tokens are ready?
-    if (selectedFile === path && tokenCache.get(path)) renderDiff();
-  });
-}
-
-// Re-highlight on theme change. Token colors are baked into the rendered spans
-// (span.style.color), so clearing the cache is not enough — we must re-tokenize
-// the open file with the new theme and rebuild the DOM. Mirrors refresh()'s
-// render-then-highlight sequence.
+// Re-render on theme change: renderTextDiff hands Pierre the new theme via
+// setOptions, and Pierre repaints its highlighting.
 onThemeChange(() => {
   if (!sessionId) return; // review not open
-  tokenCache.clear();
   renderDiff();
-  highlightCurrentFile();
 });
 
 export function closeReview(): void {
@@ -312,6 +212,7 @@ export function closeReview(): void {
   snapshot = null;
   clearSelection();
   disarm();
+  teardownPierre();
   reviewEl.classList.add("hidden");
   // Return focus to whatever opened the review (a session row action).
   restoreFocus?.focus?.();
@@ -322,6 +223,8 @@ function clearSelection(): void {
   selection = null;
   draftText = "";
   cursor = null;
+  pierre?.setSelectedLines(null, { notify: false });
+  pierre?.setEditorActiveLine(null);
 }
 
 function currentFile(): FileDiff | undefined {
@@ -364,7 +267,6 @@ function selectFileByOffset(delta: number): void {
   clearSelection();
   renderFiles();
   renderDiff();
-  highlightCurrentFile();
   filesEl.querySelector(".review-file.active")?.scrollIntoView({ block: "nearest" });
 }
 
@@ -472,7 +374,6 @@ function renderFiles(): void {
       clearSelection();
       renderFiles();
       renderDiff();
-      highlightCurrentFile();
     });
     filesEl.appendChild(row);
   }
@@ -679,29 +580,32 @@ function renderCommentEditor(lines: DiffLine[]): HTMLDivElement {
 
 // -------------------------------------------------------------------- diff
 
-/** Append a trailing section to the diff for comments that don't anchor to any
- *  rendered line — their anchor line, or whole file, has left the diff. Keeps
- *  them visible and deletable instead of silently dropping them. Mirrors
+/** Build a trailing section for comments that don't anchor to any rendered
+ *  line — their anchor line, or whole file, has left the diff. Keeps them
+ *  visible and deletable instead of silently dropping them. Mirrors
  *  claude-commander's TUI orphan handling. */
-function renderOrphanComments(orphans: Comment[]): void {
-  if (!orphans.length) return;
+function orphanSection(orphans: Comment[]): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  if (!orphans.length) return frag;
   const header = document.createElement("div");
   header.className = "hunk-header orphan-header";
   header.textContent = "Unanchored comments — lines no longer in the diff";
-  diffEl.appendChild(header);
-  for (const c of orphans) diffEl.appendChild(renderCommentBlock(c));
+  frag.appendChild(header);
+  for (const c of orphans) frag.appendChild(renderCommentBlock(c));
+  return frag;
 }
 
 function renderDiff(): void {
-  diffEl.innerHTML = "";
   if (!snapshot) return;
   const file = currentFile();
   if (!file) {
+    teardownPierre();
+    diffEl.innerHTML = "";
     // The selected path has no diff (its change was reverted) but may still
     // carry comments; render them so they stay visible and deletable.
     const stranded = selectedFile ? commentsForFile(selectedFile) : [];
     if (stranded.length) {
-      renderOrphanComments(stranded);
+      diffEl.appendChild(orphanSection(stranded));
     } else {
       const empty = document.createElement("div");
       empty.className = "review-empty";
@@ -712,134 +616,212 @@ function renderDiff(): void {
   }
   const mime = imageMime(file);
   if (mime) {
+    teardownPierre();
     void renderImageDiff(file, mime);
     return;
   }
-  const anchors = commentsByAnchor(snapshot.comments, displayPath(file));
-  // Ids of comments rendered inline against a present line; the rest are
-  // orphaned (their anchor line left the diff) and pinned in a trailing section.
-  const rendered = new Set<string>();
+  void renderTextDiff(file);
+}
 
-  const selStart = selection ? Math.min(selection.anchor, selection.head) : -1;
-  const selEnd = selection ? Math.max(selection.anchor, selection.head) : -1;
-  const flatLines: DiffLine[] = file.hunks.flatMap((h) => h.lines);
-  const fileTokens = tokenCache.get(displayPath(file)) ?? null;
-  let idx = 0;
-  let editorAnchorRow: HTMLDivElement | null = null;
-
-  for (const [hunkIdx, hunk] of file.hunks.entries()) {
-    const header = document.createElement("div");
-    header.className = "hunk-header";
-    header.textContent =
-      `@@ -${hunk.old_start},${hunk.old_lines} +${hunk.new_start},${hunk.new_lines} @@` +
-      (hunk.header ? ` ${hunk.header}` : "");
-    diffEl.appendChild(header);
-
-    for (const [lineInHunk, line] of hunk.lines.entries()) {
-      const lineIdx = idx++;
-      const row = document.createElement("div");
-      row.className = `diff-line diff-${line.origin}`;
-      row.classList.toggle("selected", lineIdx >= selStart && lineIdx <= selEnd);
-      // Each line is an actionable target: focus lands the keyboard cursor here
-      // (roving tabindex — only the cursor line is tabbable) and Enter/`c`
-      // opens a comment for it.
-      row.setAttribute("role", "button");
-      const lineNo = line.new_lineno ?? line.old_lineno;
-      row.setAttribute(
-        "aria-label",
-        `Line ${lineNo ?? lineIdx + 1} — press Enter or C to comment`,
-      );
-      const isCursor = lineIdx === cursor;
-      row.tabIndex = isCursor ? 0 : -1;
-      row.classList.toggle("cursor", isCursor);
-
-      const oldNo = document.createElement("span");
-      oldNo.className = "lineno";
-      oldNo.textContent = line.old_lineno?.toString() ?? "";
-      const newNo = document.createElement("span");
-      newNo.className = "lineno";
-      newNo.textContent = line.new_lineno?.toString() ?? "";
-
-      const marker = { context: " ", addition: "+", deletion: "-" }[line.origin];
-      const content = document.createElement("span");
-      content.className = "line-content";
-      const tokens = fileTokens?.[hunkIdx]?.[lineInHunk];
-      if (tokens) {
-        // Syntax colors on token spans; the add/delete signal stays on the
-        // row background (plain diff colors remain the un-highlighted
-        // fallback via CSS).
-        content.textContent = marker;
-        for (const t of tokens) {
-          const span = document.createElement("span");
-          span.textContent = t.content;
-          if (t.color) span.style.color = t.color;
-          content.appendChild(span);
-        }
-      } else {
-        content.textContent = `${marker}${line.content}`;
+/** The full options for the Pierre pane — rebuilt per render so the theme is
+ *  current (setOptions replaces, not merges). Callbacks read module state, so
+ *  one instance serves every file of the open review. */
+function pierreOptions(mod: PierreModule): FileDiffOptions<AnnotationMeta> {
+  const theme = currentTheme();
+  return {
+    diffStyle: "unified",
+    diffIndicators: "bars",
+    disableBackground: true,
+    hunkSeparators: "line-info",
+    lineDiffType: "word-alt",
+    disableFileHeader: true, // the sidebar owns file identity
+    theme: pierreThemeName(mod, theme),
+    themeType: theme.appearance,
+    enableLineSelection: true,
+    onLineSelected: handleLineSelected,
+    // Pierre's native selection lives on the number gutter (click/drag there);
+    // clicking anywhere on a line keeps working like the old renderer did.
+    onLineClick: handleLineClick,
+    renderAnnotation: (a: DiffLineAnnotation<AnnotationMeta>) => {
+      const meta = a.metadata;
+      if ("kind" in meta) {
+        const lines = selectionLines();
+        return lines ? renderCommentEditor(lines) : undefined;
       }
+      return renderCommentBlock(meta);
+    },
+  };
+}
 
-      row.append(oldNo, newNo, content);
-      row.addEventListener("click", (e) => {
-        if (e.shiftKey && selection) {
-          selection.head = lineIdx;
-        } else if (selection?.anchor === lineIdx && selection.head === lineIdx) {
-          clearSelection(); // click the sole selected line again to deselect
-        } else {
-          selection = { anchor: lineIdx, head: lineIdx };
-        }
-        cursor = lineIdx; // keep the keyboard cursor in step with the mouse
-        renderDiff();
-      });
-      diffEl.appendChild(row);
-      if (lineIdx === selEnd) editorAnchorRow = row;
+/** The flat lines covered by the current selection, or null when there is no
+ *  selection (or it went stale against the current file). */
+function selectionLines(): DiffLine[] | null {
+  const file = currentFile();
+  if (!file || !selection) return null;
+  const range = selectionToFlatRange(file, selection);
+  if (!range) return null;
+  return flatLines(file).slice(range[0], range[1] + 1);
+}
 
-      // Comments anchor to the end of their range on their side. Old/new line
-      // numbers are unique within a file, so each comment matches one line.
-      const lineComments = [
-        ...(line.new_lineno ? (anchors.get(`new:${line.new_lineno}`) ?? []) : []),
-        ...(line.old_lineno ? (anchors.get(`old:${line.old_lineno}`) ?? []) : []),
-      ];
-      for (const c of lineComments) {
-        rendered.add(c.id);
-        diffEl.appendChild(renderCommentBlock(c));
-      }
-    }
+/** Adopt a new selection (or none), keep the keyboard cursor in step, and
+ *  re-render so the composer follows the range end. */
+function applySelection(range: PierreSelection | null): void {
+  if (!range) {
+    if (!selection) return;
+    selection = null;
+    draftText = "";
+    renderDiff();
+    return;
+  }
+  selection = range;
+  const file = currentFile();
+  const flat = file ? selectionToFlatRange(file, selection) : null;
+  if (flat) cursor = flat[1];
+  renderDiff();
+}
+
+/** Pierre's committed gutter selection (click or drag on the line numbers). */
+function handleLineSelected(range: SelectedLineRange | null): void {
+  applySelection(range);
+}
+
+/** A click on the line itself: select it for a comment (shift-click extends,
+ *  clicking the sole selected line again deselects) — the old renderer's
+ *  click-anywhere behaviour on top of Pierre's gutter selection. */
+function handleLineClick(props: {
+  lineNumber: number;
+  annotationSide: "deletions" | "additions";
+  event: PointerEvent;
+}): void {
+  const point = { lineNumber: props.lineNumber, side: props.annotationSide };
+  if (props.event.shiftKey && selection) {
+    applySelection({
+      start: selection.start,
+      side: selection.side,
+      end: point.lineNumber,
+      endSide: point.side,
+    });
+    return;
+  }
+  const soleSelected =
+    selection &&
+    selection.start === selection.end &&
+    selection.start === point.lineNumber &&
+    (selection.side ?? "additions") === point.side;
+  applySelection(
+    soleSelected
+      ? null
+      : { start: point.lineNumber, side: point.side, end: point.lineNumber, endSide: point.side },
+  );
+}
+
+/** Render `file` through Pierre: parse (cached), map comments to annotations,
+ *  attach the composer at the selection end, and re-apply selection/cursor.
+ *  Async because the module lazy-loads; a render token guards staleness. */
+async function renderTextDiff(file: FileDiff): Promise<void> {
+  const seq = ++renderSeq;
+  const path = displayPath(file);
+  const mod = await loadPierre();
+  if (seq !== renderSeq || !sessionId || !snapshot || selectedFile !== path) return;
+
+  const meta = parsedFile(mod, file);
+  if (!meta) {
+    teardownPierre();
+    diffEl.innerHTML = "";
+    const err = document.createElement("div");
+    err.className = "review-empty error";
+    err.textContent = "Couldn't render this file's diff.";
+    diffEl.appendChild(err);
+    return;
   }
 
-  // Comments whose anchor line is no longer present in any hunk (the file
-  // changed under them) match no rendered line, so they'd silently vanish —
-  // and with them their delete button, stranding a drifted comment that blocks
-  // apply with no way to clear it.
-  renderOrphanComments(commentsForFile(displayPath(file)).filter((c) => !rendered.has(c.id)));
+  const { annotations, orphans } = splitComments(snapshot.comments, path, file);
+  const lineAnnotations: DiffLineAnnotation<AnnotationMeta>[] = annotations.map((a) => ({
+    side: a.side,
+    lineNumber: a.lineNumber,
+    metadata: a.metadata,
+  }));
 
-  if (selection && editorAnchorRow) {
-    const selLines = flatLines.slice(selStart, selEnd + 1);
-    editorAnchorRow.after(renderCommentEditor(selLines));
+  // The composer hangs off the bottom-most selected line as one more annotation.
+  const flat = selectionToFlatRange(file, selection ?? { start: -1, end: -1 });
+  if (selection && flat) {
+    const endLine = flatLines(file)[flat[1]];
+    const anchor = composerAnchor(endLine);
+    lineAnnotations.push({
+      side: anchor.side,
+      lineNumber: anchor.lineNumber,
+      metadata: { kind: "composer", start: flat[0], end: flat[1] },
+    });
   }
+
+  // First text render (or back from an image/stranded pane): mount the holder.
+  if (!pierreHolder || !pierreHolder.isConnected || pierreHolder.parentElement !== diffEl) {
+    teardownPierre();
+    diffEl.innerHTML = "";
+    pierreHolder = document.createElement("div");
+    pierreHolder.className = "review-pierre-pane";
+    diffEl.appendChild(pierreHolder);
+  }
+  if (!pierre) {
+    pierre = new mod.FileDiff<AnnotationMeta>(pierreOptions(mod));
+  } else {
+    pierre.setOptions(pierreOptions(mod));
+  }
+  pierre.render({ fileDiff: meta, lineAnnotations, containerWrapper: pierreHolder });
+  pierre.setSelectedLines(selection, { notify: false });
+  applyCursor(file);
+
+  // Orphaned comments render after the Pierre pane, in the page's light DOM.
+  diffEl.querySelectorAll(".orphan-header, .review-comment.orphan-item").forEach((n) => n.remove());
+  const frag = orphanSection(orphans);
+  frag.querySelectorAll(".review-comment").forEach((n) => n.classList.add("orphan-item"));
+  diffEl.appendChild(frag);
+}
+
+/** Reflect the keyboard cursor through Pierre's active-line decoration. */
+function applyCursor(file: FileDiff): void {
+  if (!pierre) return;
+  const lines = flatLines(file);
+  const line = cursor !== null ? lines[cursor] : undefined;
+  if (!line) {
+    pierre.setEditorActiveLine(null);
+    return;
+  }
+  const anchor = composerAnchor(line);
+  pierre.setEditorActiveLine(anchor.lineNumber, { side: anchor.side });
+}
+
+/** Scroll the cursor's row (inside Pierre's shadow root) into view. */
+function scrollCursorIntoView(): void {
+  const row = pierreHolder
+    ?.querySelector("diffs-container")
+    ?.shadowRoot?.querySelector("[data-editor-active-line]");
+  row?.scrollIntoView({ block: "nearest" });
 }
 
 /** Move the keyboard line cursor by `delta` within the current file (clamped,
- *  no wrap), re-render so the ring follows, and keep the cursor row focused and
- *  in view. Initialises to the first/last line when no cursor is set yet. */
+ *  no wrap) and keep the cursor row in view. Initialises to the first/last
+ *  line when no cursor is set yet. */
 function moveCursor(delta: number): void {
   const file = currentFile();
   if (!file) return;
-  const count = file.hunks.reduce((n, h) => n + h.lines.length, 0);
+  const count = flatLines(file).length;
   if (!count) return;
   const from = cursor ?? (delta > 0 ? -1 : count);
   cursor = Math.min(count - 1, Math.max(0, from + delta));
-  renderDiff();
-  const row = diffEl.querySelector<HTMLElement>(".diff-line.cursor");
-  row?.focus();
-  row?.scrollIntoView({ block: "nearest" });
+  applyCursor(file);
+  scrollCursorIntoView();
 }
 
 /** Open the comment composer for the current cursor line (the keyboard twin of
  *  clicking a line). No-op when the cursor is unset. */
 function openComposerAtCursor(): void {
-  if (cursor === null) return;
-  selection = { anchor: cursor, head: cursor };
+  const file = currentFile();
+  if (cursor === null || !file) return;
+  const line = flatLines(file)[cursor];
+  if (!line) return;
+  const anchor = composerAnchor(line);
+  selection = { start: anchor.lineNumber, side: anchor.side, end: anchor.lineNumber };
   renderDiff(); // the composer renders after the row and autofocuses its textarea
 }
 

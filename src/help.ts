@@ -30,7 +30,7 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
   [
     "Review",
     [
-      ["Click line", "Select for comment (shift-click extends, Esc clears)"],
+      ["Click / drag lines", "Select for comment (shift-click extends, Esc clears)"],
       ["j / k", "Move the line cursor (Enter or c comments that line)"],
       ["Cmd/Ctrl+Enter", "Save comment"],
       ["↑/↓ or Ctrl-P/N", "Previous / next file"],

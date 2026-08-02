@@ -9,7 +9,7 @@
 // via the onThemeChange subscription.
 
 import type { ITheme } from "@xterm/xterm";
-import type { ThemeRegistrationRaw } from "shiki";
+import type { ThemeRegistration } from "@pierre/diffs";
 
 export type Appearance = "light" | "dark";
 export type Mode = "light" | "dark" | "system";
@@ -27,7 +27,7 @@ export interface Theme {
   /** Full xterm palette (consumed in Phase 3). */
   terminal: ITheme;
   /** A bundled Shiki theme id, or a full TextMate theme object (custom themes). */
-  shiki: string | ThemeRegistrationRaw;
+  shiki: string | ThemeRegistration;
 }
 
 const MOCHA: Theme = {
@@ -1164,7 +1164,7 @@ export function validateTheme(raw: unknown): ValidationResult {
   // non-bundled id we can't load) inherits the base built-in's id.
   let shiki: Theme["shiki"];
   if (typeof r.shiki === "object" && r.shiki !== null) {
-    shiki = { ...(r.shiki as ThemeRegistrationRaw), name: id };
+    shiki = { ...(r.shiki as ThemeRegistration), name: id };
   } else if (typeof r.shiki === "string" && SHIKI_IDS.has(r.shiki)) {
     shiki = r.shiki;
   } else {

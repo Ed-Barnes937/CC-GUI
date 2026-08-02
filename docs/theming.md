@@ -99,9 +99,9 @@ The diff viewer highlights code with [Shiki](https://shiki.style). Two options:
    }
    ```
 
-   (A `name` is added automatically.) Only this object form gives non-Catppuccin
-   syntax colors — bundled Shiki theme ids other than the two Catppuccin themes are
-   not shipped, so a `"shiki": "github-dark"` string falls back to the base built-in.
+   (A `name` is added automatically.) Only this object form gives custom syntax
+   colors — a `"shiki"` id string is only honoured when a built-in theme already
+   uses it; any other id falls back to the base built-in's syntax colors.
 
 ## Validation & safety
 

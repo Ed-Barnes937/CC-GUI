@@ -3922,58 +3922,11 @@ body.resizing .row-divider {
   color: var(--attention);
 }
 
-.diff-line {
-  display: flex;
-  white-space: pre;
-}
-
-.diff-line .lineno {
-  width: 44px;
-  flex-shrink: 0;
-  text-align: right;
-  padding-right: 8px;
-  color: var(--text-dim);
-  user-select: none;
-}
-
-.diff-line .line-content {
-  flex: 1;
-  padding-left: 6px;
-}
-
-.diff-addition {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-}
-
-.diff-addition .line-content {
-  color: var(--success);
-}
-
-.diff-deletion {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.diff-deletion .line-content {
-  color: var(--danger);
-}
-
-.diff-line {
-  cursor: pointer;
-}
-
-.diff-line.selected {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-/* Keyboard line cursor: the row/tab focus treatment — a 2px accent outline
-   drawn inside the row so it reads without shifting the dense diff. */
-.diff-line:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.diff-line.selected .line-content {
-  color: var(--text);
+/* The @pierre/diffs pane. Rows render inside the <diffs-container> shadow root
+   with the library's own styles; comment cards and the composer are slotted
+   light-DOM children, so the .review-comment rules below still reach them. */
+.review-pierre-pane {
+  padding: 0 8px;
 }
 
 #review-status {

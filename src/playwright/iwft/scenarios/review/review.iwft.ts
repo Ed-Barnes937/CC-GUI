@@ -165,6 +165,123 @@ test.describe("with a comment on a file no longer in the diff", () => {
   });
 });
 
+test.describe("across file statuses", () => {
+  const added: FileDiff = {
+    old_path: "fresh.txt",
+    new_path: "fresh.txt",
+    status: "added",
+    added: 2,
+    removed: 0,
+    binary: null,
+    hunks: [
+      {
+        old_start: 0,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: 2,
+        header: "",
+        lines: [
+          { origin: "addition", old_lineno: null, new_lineno: 1, content: "first line" },
+          { origin: "addition", old_lineno: null, new_lineno: 2, content: "second line" },
+        ],
+      },
+    ],
+  };
+  const deleted: FileDiff = {
+    old_path: "legacy.txt",
+    new_path: "legacy.txt",
+    status: "deleted",
+    added: 0,
+    removed: 1,
+    binary: null,
+    hunks: [
+      {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 0,
+        new_lines: 0,
+        header: "",
+        lines: [{ origin: "deletion", old_lineno: 1, new_lineno: null, content: "legacy line" }],
+      },
+    ],
+  };
+  const renamed: FileDiff = {
+    old_path: "before.txt",
+    new_path: "after.txt",
+    status: "renamed",
+    added: 1,
+    removed: 0,
+    binary: null,
+    hunks: [
+      {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 2,
+        header: "",
+        lines: [
+          { origin: "context", old_lineno: 1, new_lineno: 1, content: "kept line" },
+          { origin: "addition", old_lineno: null, new_lineno: 2, content: "renamed addition" },
+        ],
+      },
+    ],
+  };
+  test.use({
+    seed: {
+      ...defaultSeed(),
+      reviews: { [SESSION_ID]: makeReview({ diff: { files: [added, renamed, deleted] } }) },
+    },
+  });
+
+  test("select → comment lands on the right side per status, delete works, apply sends the rest", async ({ review }) => {
+    // The added file is first in the diff, so it's selected on open.
+    await review.selectLine("second line");
+    await review.writeComment("on added");
+
+    // A deleted file's lines only exist on the old side.
+    await review.selectFile("legacy.txt");
+    await review.selectLine("legacy line");
+    await review.writeComment("on deleted");
+
+    // A renamed file renders under its new path.
+    await review.selectFile("after.txt");
+    await review.selectLine("renamed addition");
+    await review.writeComment("on renamed");
+
+    const stored = await review.storedComments(SESSION_ID);
+    expect(stored).toHaveLength(3);
+    expect(stored.find((c) => c.comment === "on added")).toMatchObject({
+      file: "fresh.txt",
+      side: "new",
+      line_range: [2, 2],
+      snippet: "second line",
+    });
+    expect(stored.find((c) => c.comment === "on deleted")).toMatchObject({
+      file: "legacy.txt",
+      side: "old",
+      line_range: [1, 1],
+      snippet: "legacy line",
+    });
+    expect(stored.find((c) => c.comment === "on renamed")).toMatchObject({
+      file: "after.txt",
+      side: "new",
+      line_range: [2, 2],
+    });
+
+    // One comment can still be deleted before the send…
+    await review.deleteFirstComment();
+    await expect
+      .poll(async () => (await review.storedComments(SESSION_ID)).length)
+      .toBe(2);
+
+    // …and apply sends the remaining two.
+    await review.apply();
+    await expect(review.paneLocator()).toBeHidden();
+    const after = await review.storedComments(SESSION_ID);
+    expect(after.every((c) => c.status === "applied")).toBe(true);
+  });
+});
+
 test.describe("with two files", () => {
   const emptyFile = (name: string): FileDiff => ({
     old_path: name,
