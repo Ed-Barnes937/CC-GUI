@@ -11,6 +11,14 @@ on:
 permissions:
   contents: write
 
+# Belt-and-braces: claude-commander-core bakes a telemetry ingest credential into
+# every build and its `cfg!(test)` opt-out only applies to core's own test runs,
+# not to us as a downstream consumer. tauri-action only builds the bundle (it
+# never launches it), so nothing is emitted — but DO_NOT_TRACK guarantees a
+# release build can't post to the live usage stream regardless.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   release:
     strategy:

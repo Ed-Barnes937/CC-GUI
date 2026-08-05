@@ -6,6 +6,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Belt-and-braces: claude-commander-core bakes a telemetry ingest credential into
+# every build and its `cfg!(test)` opt-out only applies to core's own test runs,
+# not to us as a downstream consumer. No job here runs the app today, so nothing
+# is emitted — but if one ever builds a CommanderService or launches the bundle,
+# DO_NOT_TRACK keeps CI runs out of the live usage stream.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   frontend:
     name: Frontend (typecheck + build)
