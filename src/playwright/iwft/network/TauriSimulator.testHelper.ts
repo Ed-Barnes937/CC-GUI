@@ -38,8 +38,12 @@ class TauriSimulator {
   private defaultProgram: string;
   private browsePath: string | null;
   private fileTree: Record<string, FsEntry[]>;
-  // The markdown viewer's fake repo: .md path → content + mtime.
-  private markdownFiles: Record<string, { content: string; mtime: number }>;
+  // The markdown viewer's fake repo: .md path → content, mtime, and whether the
+  // session's branch changed it (the relevance ladder's signal).
+  private markdownFiles: Record<
+    string,
+    { content: string; mtime: number; changedOnBranch: boolean }
+  >;
   // Repo-relative image path → base64 bytes (read_session_image).
   private sessionImages: Record<string, string>;
   // Live-reload seams: reads counted (to assert polling stopped) and a
@@ -69,7 +73,9 @@ class TauriSimulator {
     this.markdownFiles = Object.fromEntries(
       Object.entries(seed.markdownFiles ?? {}).map(([path, v]) => [
         path,
-        typeof v === "string" ? { content: v, mtime: 0 } : v,
+        typeof v === "string"
+          ? { content: v, mtime: 0, changedOnBranch: false }
+          : { ...v, changedOnBranch: v.changedOnBranch ?? false },
       ]),
     );
     this.sessionImages = seed.sessionImages ?? {};
@@ -138,9 +144,19 @@ class TauriSimulator {
   }
 
   /** Write (or create) a fake .md file — the "agent edits the doc" seam the
-   *  live-reload scenarios drive. */
-  setMarkdownFile(path: string, content: string): void {
-    this.markdownFiles[path] = { content, mtime: 0 };
+   *  live-reload and relevance-ladder scenarios drive. Unspecified mtime /
+   *  changed-on-branch keep an existing file's values. */
+  setMarkdownFile(
+    path: string,
+    content: string,
+    opts?: { mtime?: number; changedOnBranch?: boolean },
+  ): void {
+    const prev = this.markdownFiles[path];
+    this.markdownFiles[path] = {
+      content,
+      mtime: opts?.mtime ?? prev?.mtime ?? 0,
+      changedOnBranch: opts?.changedOnBranch ?? prev?.changedOnBranch ?? false,
+    };
   }
 
   /** Make read_session_file throw until reset — a mid-write read failure. */
@@ -243,12 +259,18 @@ class TauriSimulator {
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
       case "list_markdown_files": {
-        // Mirrors the backend (files.rs MD_MAX_FILES): newest-first, cap
-        // applied after sorting, total reported for the truncation row.
+        // Mirrors the backend (files.rs MD_MAX_FILES): branch-changed docs
+        // first, then newest, cap applied after that ordering so it can only
+        // drop the irrelevant tail, total reported for the truncation row.
         const MD_MAX_FILES = 500;
         const all = Object.entries(this.markdownFiles)
-          .map(([path, f]) => ({ path, mtime: f.mtime }))
-          .sort((a, b) => b.mtime - a.mtime || a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
+          .map(([path, f]) => ({ path, mtime: f.mtime, changed_on_branch: f.changedOnBranch }))
+          .sort(
+            (a, b) =>
+              Number(b.changed_on_branch) - Number(a.changed_on_branch) ||
+              b.mtime - a.mtime ||
+              a.path.toLowerCase().localeCompare(b.path.toLowerCase()),
+          );
         return { files: all.slice(0, MD_MAX_FILES), total: all.length };
       }
       case "read_session_file": {

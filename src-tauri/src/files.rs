@@ -7,7 +7,7 @@ use std::path::Path;
 use base64::Engine;
 use serde::Serialize;
 
-use crate::service::{parse_session_id, service};
+use crate::service::{parse_session_id, service, with_service};
 
 /// One entry in a listed directory. `size` is 0 for directories.
 #[derive(Serialize)]
@@ -108,9 +108,12 @@ pub struct MarkdownFile {
     path: String,
     /// Seconds since the Unix epoch; 0 when the mtime is unavailable.
     mtime: u64,
+    /// True when the file is in the session's review diff (merge-base vs its
+    /// base branch, plus uncommitted changes) — the frontend's relevance signal.
+    changed_on_branch: bool,
 }
 
-/// The markdown viewer's file listing, newest-first.
+/// The markdown viewer's file listing, changed-on-branch first then newest.
 #[derive(Serialize)]
 pub struct MarkdownListing {
     files: Vec<MarkdownFile>,
@@ -120,20 +123,59 @@ pub struct MarkdownListing {
 
 /// Recursively list every `*.md` under a session's worktree for the markdown
 /// viewer, skipping dependency/build directories (and hidden directories
-/// except `.claude`, where plan/skill docs live). Sorted newest-first by
-/// mtime; the `MD_MAX_FILES` cap is applied after sorting so truncation drops
-/// the stalest files, and `total` lets the picker say how many were cut.
+/// except `.claude`, where plan/skill docs live), flagging the ones the
+/// session's branch changed.
+///
+/// Ordering here exists only so the `MD_MAX_FILES` cap can never cut a
+/// relevant doc: changed-on-branch first, then newest by mtime. The viewer's
+/// actual ladder and picker order are pure frontend functions over this
+/// listing (`src/markdownRelevance.ts`, ADR-0005); `total` lets the picker say
+/// how many were cut.
 #[tauri::command]
 pub async fn list_markdown_files(session_id: String) -> Result<MarkdownListing, String> {
     let root = session_root(&session_id).await?;
+    let changed = changed_markdown_files(&session_id).await;
     let mut files = collect_markdown_files(&root);
+    for f in &mut files {
+        f.changed_on_branch = changed.contains(&f.path);
+    }
+    sort_by_relevance(&mut files);
     let total = files.len();
     files.truncate(MD_MAX_FILES);
     Ok(MarkdownListing { files, total })
 }
 
-/// Walk `root` for `*.md` files (skip rules per `list_markdown_files`) and
-/// return them newest-first, ties broken by path.
+/// The `*.md` paths in a session's review diff, reusing the same machinery the
+/// review view does. A session with no resolvable diff (no git base, an
+/// unreachable worktree) yields an empty set rather than failing the listing —
+/// the viewer then just falls through the ladder to README.
+async fn changed_markdown_files(session_id: &str) -> std::collections::HashSet<String> {
+    let sid = match parse_session_id(session_id) {
+        Ok(sid) => sid,
+        Err(_) => return Default::default(),
+    };
+    let review =
+        with_service(
+            move |svc| async move { svc.open_review(&sid).await.map_err(|e| e.to_string()) },
+        )
+        .await;
+    match review {
+        Ok(snapshot) => snapshot
+            .diff
+            .files
+            .iter()
+            .map(|f| f.display_path().to_string())
+            .filter(|p| p.to_lowercase().ends_with(".md"))
+            .collect(),
+        Err(e) => {
+            tracing::debug!("markdown listing: no branch diff for {session_id}: {e}");
+            Default::default()
+        }
+    }
+}
+
+/// Walk `root` for `*.md` files (skip rules per `list_markdown_files`).
+/// `changed_on_branch` starts false; the caller fills it in.
 fn collect_markdown_files(root: &Path) -> Vec<MarkdownFile> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -162,16 +204,23 @@ fn collect_markdown_files(root: &Path) -> Vec<MarkdownFile> {
                 files.push(MarkdownFile {
                     path: rel_to_root(root, &path),
                     mtime,
+                    changed_on_branch: false,
                 });
             }
         }
     }
+    files
+}
+
+/// Branch-changed docs first, then newest by mtime, ties broken by path — the
+/// order the cap is applied over (see `list_markdown_files`).
+fn sort_by_relevance(files: &mut [MarkdownFile]) {
     files.sort_by(|a, b| {
-        b.mtime
-            .cmp(&a.mtime)
+        b.changed_on_branch
+            .cmp(&a.changed_on_branch)
+            .then_with(|| b.mtime.cmp(&a.mtime))
             .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
     });
-    files
 }
 
 /// Read one file inside a session's worktree (same escape guard as
@@ -257,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_markdown_files_sorts_newest_first_and_skips_noise() {
+    fn collect_markdown_files_skips_noise_and_sorts_relevant_first() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         for d in ["docs", "node_modules", ".claude", ".hidden"] {
@@ -273,10 +322,21 @@ mod tests {
         set_mtime(&root.join("README.md"), 100);
         set_mtime(&root.join(".claude/skill.md"), 200);
 
-        let files = collect_markdown_files(&root);
+        let mut files = collect_markdown_files(&root);
+        sort_by_relevance(&mut files);
         let paths: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, ["docs/plan.md", "README.md", ".claude/skill.md"]);
         assert!(files[0].mtime >= files[1].mtime);
+
+        // A branch-changed doc outranks newer untouched ones, so the cap can
+        // only ever drop the irrelevant tail.
+        files
+            .iter_mut()
+            .find(|f| f.path == ".claude/skill.md")
+            .unwrap()
+            .changed_on_branch = true;
+        sort_by_relevance(&mut files);
+        assert_eq!(files[0].path, ".claude/skill.md");
     }
 
     #[test]

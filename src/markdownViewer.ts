@@ -1,9 +1,12 @@
 // Markdown viewer: a distraction-free reader for the active session's repo
 // docs (plans, design docs, READMEs), toggled with Cmd+M. A centered column
 // renders the file with @tanstack/markdown; the bar above it is a search-style
-// button that drops a fuzzy file picker over every *.md in the worktree,
-// newest-first (backed by `list_markdown_files` / `read_session_file` /
-// `read_session_image` in src-tauri/src/files.rs). In-repo .md links open in
+// button that drops a fuzzy file picker over every *.md in the worktree, in
+// relevance order (backed by `list_markdown_files` / `read_session_file` /
+// `read_session_image` in src-tauri/src/files.rs). Which doc opens is the
+// relevance ladder in ./markdownRelevance (ADR-0005): docs the session's branch
+// changed, newest first → README → the picker, with the last-viewed doc winning
+// unless the agent has touched something since. In-repo .md links open in
 // the viewer; anchors scroll; everything else is inert. Repo-relative images
 // are swapped to data: URIs (ADR-0006); code blocks are Shiki-highlighted in
 // the active theme (ADR-0005) and re-render on theme switches. While the
@@ -13,6 +16,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { parseMarkdown } from "@tanstack/markdown/parser";
 import { renderHtml } from "@tanstack/markdown/html";
+import {
+  rankByRelevance,
+  resolveTarget,
+  type LastViewed,
+  type MdFile,
+} from "./markdownRelevance";
 import { ensureLang, ensureShikiTheme, getHighlighter, resolveLang } from "./shiki";
 import { currentTheme, onThemeChange } from "./theme";
 import { toast } from "./toast";
@@ -24,17 +33,23 @@ type OpenParams = {
   initialPath?: string;
 };
 
-/** One entry from list_markdown_files (mtime: epoch seconds, unused so far). */
-type MdFile = { path: string; mtime: number };
-type MdListing = { files: MdFile[]; total: number };
+/** One entry from list_markdown_files, as the backend serializes it. */
+type RawMdFile = { path: string; mtime: number; changed_on_branch: boolean };
+type MdListing = { files: RawMdFile[]; total: number };
 
 let sessionId: string | null = null;
 let focusTerminal: () => void = () => {};
+/** The listing in relevance order (ADR-0005) — also the picker's row order. */
 let files: MdFile[] = [];
 /** Total *.md count before the backend's cap; > files.length when truncated. */
 let total = 0;
 let current: string | null = null;
 let currentSource: string | null = null;
+
+// Where the viewer was last left, per session — so reopening returns to the doc
+// you were reading. In-memory for the app's lifetime, deliberately not
+// persisted (a doc that mattered last week rarely matters on a cold start).
+const lastViewedBySession = new Map<string, LastViewed>();
 
 // data: URIs (null = unusable → placeholder) per repo-relative image path,
 // so a theme-switch re-render doesn't re-read every image. Cleared on open.
@@ -106,7 +121,7 @@ export async function openMarkdownViewer(params: OpenParams): Promise<void> {
   imageCache.clear();
   try {
     const listing = await invoke<MdListing>("list_markdown_files", { sessionId });
-    files = listing.files;
+    files = rankByRelevance(listing.files.map(toMdFile));
     total = listing.total;
   } catch (e) {
     toast(`could not list markdown files: ${e}`, "error");
@@ -116,7 +131,7 @@ export async function openMarkdownViewer(params: OpenParams): Promise<void> {
   const initial =
     params.initialPath && files.some((f) => f.path === params.initialPath)
       ? params.initialPath
-      : (files.find((f) => f.path.toLowerCase() === "readme.md")?.path ?? null);
+      : resolveTarget(files, lastViewedBySession.get(params.sessionId) ?? null);
   panel.focus();
   if (initial) {
     void showFile(initial);
@@ -174,6 +189,7 @@ async function pollCurrent(): Promise<void> {
     if (source === currentSource) return; // unchanged — don't touch the DOM
     currentSource = source;
     renderDocPreservingScroll(path, source);
+    markViewed(path);
   } catch {
     // mid-write read failure — the last good rendering stays
   } finally {
@@ -209,6 +225,19 @@ async function showFile(path: string): Promise<void> {
   renderDoc(path, source);
   doc.scrollTop = 0;
   panel.focus();
+  markViewed(path);
+}
+
+/** Note that `path` has been seen *now*, so a later reopen returns here — and
+ *  only a doc the agent changes after this point outranks it. Live reload comes
+ *  through here too: what you've just watched re-render counts as seen. */
+function markViewed(path: string): void {
+  if (sessionId) lastViewedBySession.set(sessionId, { path, at: Date.now() / 1000 });
+}
+
+/** Backend listing entry → the shape the pure relevance functions take. */
+function toMdFile(f: RawMdFile): MdFile {
+  return { path: f.path, mtime: f.mtime, changedOnBranch: f.changed_on_branch };
 }
 
 /** Render `source` into the doc column and kick off the async decorations
@@ -386,7 +415,7 @@ async function refreshListing(): Promise<void> {
     return; // stale listing stays — same stance as a failed poll read
   }
   if (sessionId !== sid || !isPickerOpen()) return;
-  files = listing.files;
+  files = rankByRelevance(listing.files.map(toMdFile));
   total = listing.total;
   renderList();
 }
@@ -396,7 +425,7 @@ function closePicker(): void {
 }
 
 /** Subsequence match, same spirit as the command palette. Preserves the
- *  listing's newest-first order. */
+ *  listing's relevance order, so it breaks ties while typing. */
 function matches(): string[] {
   const q = input.value.toLowerCase();
   return files
@@ -427,8 +456,9 @@ function renderList(): void {
     list.appendChild(row);
   });
   if (total > files.length) {
-    // The backend capped the listing (newest-first, so the stalest files were
-    // dropped): say so rather than silently pretending this is everything.
+    // The backend capped the listing (relevance-ordered, so only the stalest
+    // untouched files were dropped): say so rather than silently pretending
+    // this is everything.
     const cap = document.createElement("div");
     cap.className = "mdv-cap-row";
     cap.textContent = `${files.length} of ${total} — keep typing to narrow`;
