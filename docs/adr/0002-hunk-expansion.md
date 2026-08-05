@@ -11,13 +11,18 @@ hunks, with the `line-info` hunk separators named as the mount point for
 future expansion arrows.
 
 Pierre supports expansion natively. A diff parsed from patch text is a
-**partial diff** (`isPartial: true`); when a `loadDiffFiles` callback is
-configured, Pierre calls it eagerly on first render of a changed/renamed
-file, **hydrates** the metadata in place with both sides' full contents, and
-from then on renders expansion arrows in the separators and handles the
-clicks itself (`expandHunk`). Added/deleted files never call the loader —
-their one existing side is already fully present in the patch. Loader
-failures are caught and logged; the file simply stays partial (no arrows).
+**partial diff** (`isPartial: true`); once **hydrated** in place with both
+sides' full contents (Pierre exports `hydratePartialDiff` for this), Pierre
+renders expansion arrows in the separators and handles the clicks itself
+(`expandHunk`). Pierre also offers a `loadDiffFiles` callback, but it is
+unsuitable here: it is invoked lazily (on the first arrow click, not on
+render), arrows render optimistically while the file is still partial — so a
+drifted file would show arrows that silently do nothing — and pure renames
+never get arrows at all. CC-GUI therefore hydrates the metadata itself,
+before the parsed file first reaches Pierre. Added/deleted files skip
+hydration — their one existing side is already fully present in the patch.
+Hydration failures are caught and logged; the file simply stays partial (no
+arrows).
 
 On the backend, the plumbing already exists: `read_review_image` wraps
 `svc.fetch_diff_blob(sid, side, path)`, which reads the working tree for the
@@ -29,11 +34,12 @@ pointers).
 Wire Pierre's native expansion up end-to-end. Resolved points from the
 design grill:
 
-1. **Eager per-file loading.** Accept Pierre's timing: contents are fetched
-   when a changed/renamed file is first rendered, not when an arrow is
-   clicked. Reads are local and scoped to the file being viewed. Loaded
-   contents are cached per path; the cache resets on snapshot refresh
-   (same lifecycle as `parsedCache`/`imageCache`).
+1. **Eager per-file loading.** Contents are fetched when a changed/renamed
+   file is first rendered, not when an arrow is clicked — so arrows only
+   appear once hydration (and the staleness check below) has succeeded.
+   Reads are local and scoped to the file being viewed. Loaded contents are
+   cached per path; the cache resets on snapshot refresh (same lifecycle as
+   `parsedCache`/`imageCache`).
 2. **New thin command `read_review_file(id, path, side) -> String`** in
    `src-tauri/src/review.rs`, mirroring `read_review_image` over the same
    `fetch_diff_blob` service call, converting with `String::from_utf8_lossy`
@@ -52,10 +58,10 @@ design grill:
    frozen at open/refresh time but the new side reads the live working tree,
    which the agent may have modified since. Before handing contents to
    Pierre, verify each hunk's context/addition lines match the loaded
-   new-side content at their claimed line numbers; on mismatch, throw inside
-   the loader — Pierre catches it and the file stays unexpandable rather
-   than rendering shifted context. A manual refresh recovers. (The old side
-   is immutable and needs no check.)
+   new-side content at their claimed line numbers; on mismatch, skip
+   hydration — the file stays unexpandable (no arrows) rather than
+   rendering shifted context. A manual refresh recovers. (The old side is
+   immutable and needs no check.)
 6. **No large-file guard.** Files here already went through CC's text-diff
    pipeline at snapshot time, and Pierre virtualizes rendering. A size cap
    is speculative tuning; add one only if a real file ever hurts.

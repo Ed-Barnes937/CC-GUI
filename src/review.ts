@@ -22,11 +22,14 @@ import {
   type ReviewSnapshot,
 } from "./review/model";
 import {
+  assertContentMatchesHunks,
   buildPatch,
   lineAnchor,
   flatLines,
+  loaderPaths,
   selectionToFlatRange,
   splitComments,
+  toLoadedFiles,
   type PierreSelection,
 } from "./review/pierre";
 
@@ -89,6 +92,55 @@ function parsedFile(mod: PierreModule, file: FileDiff): FileDiffMetadata | null 
 /** Image data-URL cache, keyed by `${path}\0${side}`. Reset on refresh so a new
  *  snapshot re-reads the bytes; avoids re-fetching on theme change / re-render. */
 const imageCache = new Map<string, string>();
+
+/** Text-content cache for hunk expansion, keyed by `${path}\0${side}`. Same
+ *  lifecycle as parsedCache/imageCache: reset on snapshot refresh. */
+const contentCache = new Map<string, string>();
+
+/** Fetch one side of a text file for hunk expansion, memoized per snapshot. */
+async function loadFileContents(id: string, path: string, side: "old" | "new"): Promise<string> {
+  const key = `${path}\x00${side}`;
+  const cached = contentCache.get(key);
+  if (cached !== undefined) return cached;
+  const contents = await invoke<string>("read_review_file", { id, path, side });
+  contentCache.set(key, contents);
+  return contents;
+}
+
+/** Metas whose hydration already ran (or failed on drift) — one attempt per
+ *  parse. A snapshot refresh re-parses, so it naturally retries. */
+const hydrationTried = new WeakSet<FileDiffMetadata>();
+
+/**
+ * Hydrate a partial changed/renamed file with both sides' full contents so
+ * Pierre renders expansion arrows and handles the clicks itself (ADR 0002).
+ * Runs before the metadata first reaches Pierre; added/deleted files are
+ * skipped (their one side is already fully present in the patch). Validates
+ * the snapshot's hunks against the live new-side content first — on drift the
+ * file stays partial (no arrows) rather than rendering shifted context, and a
+ * manual refresh recovers.
+ */
+async function hydrateIfPartial(
+  mod: PierreModule,
+  file: FileDiff,
+  meta: FileDiffMetadata,
+): Promise<void> {
+  if (!meta.isPartial || hydrationTried.has(meta)) return;
+  if (meta.type !== "change" && meta.type !== "rename-changed" && meta.type !== "rename-pure")
+    return;
+  hydrationTried.add(meta);
+  const id = sessionId;
+  if (!id) return;
+  try {
+    const { oldPath, newPath } = loaderPaths(meta);
+    const newContents = await loadFileContents(id, newPath, "new");
+    assertContentMatchesHunks(file, newContents);
+    const oldContents = oldPath === null ? null : await loadFileContents(id, oldPath, "old");
+    mod.hydratePartialDiff("merge", meta, toLoadedFiles(meta, oldContents, newContents));
+  } catch (e) {
+    console.warn(`hunk expansion unavailable for ${displayPath(file)}:`, e);
+  }
+}
 
 const reviewEl = document.querySelector<HTMLDivElement>("#review")!;
 const titleEl = document.querySelector<HTMLSpanElement>("#review-title")!;
@@ -184,6 +236,7 @@ async function refresh(): Promise<void> {
   reviewed = new Set(snap.reviewed);
   parsedCache.clear();
   imageCache.clear();
+  contentCache.clear();
   baseEl.textContent = `vs ${snap.base}`;
   // Keep the selection if it still points at a diff file or a stranded file
   // that still has comments; otherwise fall back to the first diff file.
@@ -673,10 +726,17 @@ function applySelection(range: PierreSelection | null): void {
     renderDiff();
     return;
   }
-  selection = range;
   const file = currentFile();
-  const flat = file ? selectionToFlatRange(file, selection) : null;
-  if (flat) cursor = flat[1];
+  const flat = file ? selectionToFlatRange(file, range) : null;
+  if (!flat) {
+    // An endpoint matches no hunk line — the drag touched expanded context,
+    // which is read-only (ADR 0002). Drop the selection instead of leaving a
+    // range the composer can't anchor to.
+    pierre?.setSelectedLines(null, { notify: false });
+    return;
+  }
+  selection = range;
+  cursor = flat[1];
   renderDiff();
 }
 
@@ -686,8 +746,11 @@ function applySelection(range: PierreSelection | null): void {
 function handleLineClick(props: {
   lineNumber: number;
   annotationSide: "deletions" | "additions";
+  lineType: "change-deletion" | "change-addition" | "context" | "context-expanded";
   event: PointerEvent;
 }): void {
+  // Expanded context is for reading; comments target the change (ADR 0002).
+  if (props.lineType === "context-expanded") return;
   const point = { lineNumber: props.lineNumber, side: props.annotationSide };
   if (props.event.shiftKey && selection) {
     applySelection({
@@ -729,6 +792,12 @@ async function renderTextDiff(file: FileDiff): Promise<void> {
     diffEl.appendChild(err);
     return;
   }
+
+  // Hunk expansion: hydrate the parsed metadata with both sides' full contents
+  // before Pierre first renders it. Awaited, so the render below already shows
+  // expansion arrows; re-check staleness afterwards (file switched, refresh).
+  await hydrateIfPartial(mod, file, meta);
+  if (seq !== renderSeq || !sessionId || !snapshot || selectedFile !== path) return;
 
   const { annotations, orphans } = splitComments(snapshot.comments, path, file);
   const lineAnnotations: DiffLineAnnotation<AnnotationMeta>[] = annotations.map((a) => ({

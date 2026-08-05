@@ -117,6 +117,7 @@ fn main() {
             files::list_session_dir,
             review::open_review,
             review::read_review_image,
+            review::read_review_file,
             review::create_comment,
             review::delete_comment,
             review::toggle_file_reviewed,

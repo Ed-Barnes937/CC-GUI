@@ -116,6 +116,70 @@ export function splitComments(
   return { annotations, orphans };
 }
 
+/** Structural subset of Pierre's FileDiffMetadata that the hunk-expansion
+ *  loader consumes: the file's paths and change type. */
+export type PartialFileMeta = {
+  name: string;
+  prevName?: string;
+  type: "change" | "rename-pure" | "rename-changed" | "new" | "deleted";
+};
+
+/** Structural copy of Pierre's FileContents (the loader's return payload). */
+export type LoadedFileContents = { name: string; contents: string };
+
+/** Structural copy of Pierre's FileDiffLoadedFiles: both sides for a changed
+ *  file, `oldFile: null` for a pure rename. */
+export type LoadedFiles =
+  | { oldFile: LoadedFileContents; newFile: LoadedFileContents }
+  | { oldFile: null; newFile: LoadedFileContents };
+
+/**
+ * Which paths the expansion loader must read for a partial file. The new side
+ * is always the file's current name; the old side is the pre-rename path for
+ * renames, and null for pure renames (no hunks — Pierre derives the old side
+ * from the new one, so there is nothing to read).
+ */
+export function loaderPaths(meta: PartialFileMeta): { oldPath: string | null; newPath: string } {
+  return {
+    oldPath: meta.type === "rename-pure" ? null : (meta.prevName ?? meta.name),
+    newPath: meta.name,
+  };
+}
+
+/** Assemble Pierre's loaded-files payload from the fetched contents. Each side
+ *  is named by its own path so language inference keeps working. */
+export function toLoadedFiles(
+  meta: PartialFileMeta,
+  oldContents: string | null,
+  newContents: string,
+): LoadedFiles {
+  const newFile = { name: meta.name, contents: newContents };
+  if (oldContents === null) return { oldFile: null, newFile };
+  return { oldFile: { name: meta.prevName ?? meta.name, contents: oldContents }, newFile };
+}
+
+/**
+ * Guard against snapshot staleness before hydration: the snapshot's hunks are
+ * frozen at open/refresh time but the new side reads the live working tree.
+ * Verify every hunk context/addition line still matches the loaded new-side
+ * content at its claimed line number, and throw on mismatch — Pierre catches
+ * the loader's error and leaves the file unexpandable rather than rendering
+ * shifted context (ADR 0002). The old side is immutable and needs no check.
+ */
+export function assertContentMatchesHunks(file: FileDiff, newContents: string): void {
+  const lines = newContents.split("\n");
+  for (const h of file.hunks) {
+    for (const l of h.lines) {
+      if (l.new_lineno === null) continue; // deletions live on the old side
+      if (lines[l.new_lineno - 1] !== l.content) {
+        throw new Error(
+          `stale review snapshot: ${file.new_path}:${l.new_lineno} changed since open/refresh`,
+        );
+      }
+    }
+  }
+}
+
 /** Where the inline composer hangs for a selection-end line: deletions keep
  *  their old number, everything else anchors on the new number. */
 export function lineAnchor(line: DiffLine): { side: PierreSide; lineNumber: number } {

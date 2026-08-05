@@ -28,7 +28,7 @@ export class ReviewPanePageObject extends AppPageObject {
   /** A rendered diff line. Pierre draws rows inside the <diffs-container>
    *  shadow root; Playwright's CSS engine pierces it, and `[data-line]` marks
    *  each row's content element. */
-  private line(text: string): Locator {
+  line(text: string): Locator {
     return this.diff.locator("[data-line]", { hasText: text });
   }
 
@@ -102,6 +102,29 @@ export class ReviewPanePageObject extends AppPageObject {
     return this.diff.locator("textarea");
   }
 
+  // ----- hunk expansion (Pierre-native, hydrated via read_review_file) -----
+
+  /** Expansion arrows in Pierre's hunk separators — rendered only once the
+   *  loader hydrated the file (no arrows while partial/drifted). */
+  expandButtons(): Locator {
+    return this.diff.locator("[data-expand-button]");
+  }
+
+  /** Click the first expansion arrow to reveal unchanged context. */
+  expandFirst(): Promise<void> {
+    return this.step("expandFirst", () => this.expandButtons().first().click());
+  }
+
+  /** Rows revealed by expansion (read-only unchanged context). */
+  expandedLines(): Locator {
+    return this.diff.locator('[data-line][data-line-type="context-expanded"]');
+  }
+
+  /** An expanded row by its text. */
+  expandedLine(text: string): Locator {
+    return this.expandedLines().filter({ hasText: text });
+  }
+
   applyLocator(): Locator {
     return this.applyButton;
   }
@@ -128,6 +151,15 @@ export class ReviewPanePageObject extends AppPageObject {
   /** The progress ring's "N/total" mono count. */
   progressCountText(): Promise<string> {
     return this.progressCount.innerText();
+  }
+
+  /** read_review_file calls the fake has answered (or rejected) so far. */
+  storedFileReads(): Promise<{ path: string; side: string }[]> {
+    return this.page.evaluate(() =>
+      (window as unknown as {
+        __CC_SIM__: { getFileReads(): { path: string; side: string }[] };
+      }).__CC_SIM__.getFileReads(),
+    );
   }
 
   /** What the fake backend now holds for this session — the state-based assertion. */

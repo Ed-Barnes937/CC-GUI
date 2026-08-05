@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Comment, FileDiff, Hunk } from "./model";
 import {
+  assertContentMatchesHunks,
   buildPatch,
   lineAnchor,
+  loaderPaths,
   selectionToFlatRange,
   splitComments,
+  toLoadedFiles,
+  type PartialFileMeta,
 } from "./pierre";
 
 function hunk(over: Partial<Hunk> = {}): Hunk {
@@ -262,6 +266,89 @@ describe("splitComments", () => {
     const { annotations, orphans } = splitComments([c], "notes.txt", file());
     expect(orphans).toEqual([]);
     expect(annotations[0]).toMatchObject({ side: "deletions", lineNumber: 1 });
+  });
+});
+
+// -------------------------------------------------- loaderPaths / toLoadedFiles
+
+describe("loaderPaths", () => {
+  const meta = (over: Partial<PartialFileMeta> = {}): PartialFileMeta => ({
+    name: "notes.txt",
+    type: "change",
+    ...over,
+  });
+
+  it("reads both sides at the same path for a plain change", () => {
+    expect(loaderPaths(meta())).toEqual({ oldPath: "notes.txt", newPath: "notes.txt" });
+  });
+
+  it("reads the old side at the pre-rename path for a changed rename", () => {
+    const m = meta({ name: "new.txt", prevName: "old.txt", type: "rename-changed" });
+    expect(loaderPaths(m)).toEqual({ oldPath: "old.txt", newPath: "new.txt" });
+  });
+
+  it("skips the old side for a pure rename", () => {
+    const m = meta({ name: "new.txt", prevName: "old.txt", type: "rename-pure" });
+    expect(loaderPaths(m)).toEqual({ oldPath: null, newPath: "new.txt" });
+  });
+});
+
+describe("toLoadedFiles", () => {
+  it("returns both sides for a changed file", () => {
+    expect(toLoadedFiles({ name: "notes.txt", type: "change" }, "old stuff", "new stuff")).toEqual({
+      oldFile: { name: "notes.txt", contents: "old stuff" },
+      newFile: { name: "notes.txt", contents: "new stuff" },
+    });
+  });
+
+  it("names each side of a rename by its own path", () => {
+    const m: PartialFileMeta = { name: "new.txt", prevName: "old.txt", type: "rename-changed" };
+    expect(toLoadedFiles(m, "old stuff", "new stuff")).toEqual({
+      oldFile: { name: "old.txt", contents: "old stuff" },
+      newFile: { name: "new.txt", contents: "new stuff" },
+    });
+  });
+
+  it("returns oldFile null for a pure rename", () => {
+    const m: PartialFileMeta = { name: "new.txt", prevName: "old.txt", type: "rename-pure" };
+    expect(toLoadedFiles(m, null, "contents")).toEqual({
+      oldFile: null,
+      newFile: { name: "new.txt", contents: "contents" },
+    });
+  });
+});
+
+// ------------------------------------------------- assertContentMatchesHunks
+
+describe("assertContentMatchesHunks", () => {
+  // The default file's new side: 1 alpha · 2 beta new · 3 gamma · 4 delta.
+  const matching = "alpha\nbeta new\ngamma\ndelta\n";
+
+  it("accepts content whose hunk lines are unchanged", () => {
+    expect(() => assertContentMatchesHunks(file(), matching)).not.toThrow();
+  });
+
+  it("accepts extra lines beyond the hunks (the expandable region)", () => {
+    expect(() => assertContentMatchesHunks(file(), matching + "epsilon\nzeta\n")).not.toThrow();
+  });
+
+  it("throws when a context line drifted", () => {
+    const drifted = "alpha\nbeta new\ngamma\ndelta CHANGED\n";
+    expect(() => assertContentMatchesHunks(file(), drifted)).toThrow(/notes\.txt:4/);
+  });
+
+  it("throws when an addition line drifted", () => {
+    const drifted = "alpha\nbeta CHANGED\ngamma\ndelta\n";
+    expect(() => assertContentMatchesHunks(file(), drifted)).toThrow(/notes\.txt:2/);
+  });
+
+  it("throws when the file shrank below a hunk's claimed lines", () => {
+    expect(() => assertContentMatchesHunks(file(), "alpha\n")).toThrow(/stale/);
+  });
+
+  it("ignores deletion lines (they live on the immutable old side)", () => {
+    // "beta old" is nowhere in the new content — that must not trip the check.
+    expect(() => assertContentMatchesHunks(file(), matching)).not.toThrow();
   });
 });
 

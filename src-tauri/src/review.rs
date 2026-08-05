@@ -85,6 +85,31 @@ pub async fn read_review_image(id: String, path: String, side: String) -> Result
     .await
 }
 
+/// Read one side of a text file in the review diff for hunk expansion, decoding
+/// the bytes lossily (files reaching this path already diffed as text; a stray
+/// invalid byte degrades to a replacement character rather than failing
+/// hydration — see ADR 0002).
+///
+/// `side` is "old" (the review base) or "new" (the working tree), as in
+/// `read_review_image`.
+#[tauri::command]
+pub async fn read_review_file(id: String, path: String, side: String) -> Result<String, String> {
+    let sid = parse_session_id(&id)?;
+    let side = match side.as_str() {
+        "old" => DiffSide::Old,
+        "new" => DiffSide::New,
+        other => return Err(format!("invalid file side {other:?}")),
+    };
+    with_service(move |svc| async move {
+        let bytes = svc
+            .fetch_diff_blob(&sid, side, &path)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    })
+    .await
+}
+
 /// Toggle the "reviewed" (read) mark on a file in a session's review, returning
 /// the file's new reviewed state. The mark is persisted and shared with the TUI,
 /// and is keyed on the file's content so it self-invalidates if the file later
