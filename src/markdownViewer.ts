@@ -232,7 +232,10 @@ async function showFile(path: string): Promise<void> {
  *  only a doc the agent changes after this point outranks it. Live reload comes
  *  through here too: what you've just watched re-render counts as seen. */
 function markViewed(path: string): void {
-  if (sessionId) lastViewedBySession.set(sessionId, { path, at: Date.now() / 1000 });
+  // Floored to whole seconds: mtimes arrive at second granularity, and a
+  // fractional `at` would round *up* past an edit made in the same second,
+  // hiding it on the next open.
+  if (sessionId) lastViewedBySession.set(sessionId, { path, at: Math.floor(Date.now() / 1000) });
 }
 
 /** Backend listing entry → the shape the pure relevance functions take. */

@@ -33,5 +33,3 @@ Rules:
   one-paragraph notes you can just say inline.
 - Don't re-print the document's contents in the terminal when you offer the
   viewer; a one-line summary plus the pointer is enough.
-- If you touched several docs, the newest one opens; mention the others so the
-  user knows to reach for the picker (`/`), where they're the top rows.

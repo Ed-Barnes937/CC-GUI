@@ -2,6 +2,7 @@
 //! worktree. The frontend browses one directory at a time and references files
 //! into the terminal as `@path`; nothing here writes to disk.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use base64::Engine;
@@ -149,7 +150,18 @@ pub async fn list_markdown_files(session_id: String) -> Result<MarkdownListing, 
 /// review view does. A session with no resolvable diff (no git base, an
 /// unreachable worktree) yields an empty set rather than failing the listing —
 /// the viewer then just falls through the ladder to README.
-async fn changed_markdown_files(session_id: &str) -> std::collections::HashSet<String> {
+///
+/// `open_review` is the only public seam for "what has this session changed",
+/// and going through it is what guarantees the viewer's idea of *changed*
+/// matches the review view's exactly. It costs more than a filename list: it
+/// parses the whole diff, re-anchors the session's comments and prunes reviewed
+/// marks the diff has invalidated (both content-keyed, so this only does
+/// earlier what opening the review would do anyway), and books a `review.open`
+/// telemetry event. A read-only changed-files accessor upstream would let this
+/// drop to a name-only diff; resolving the review base here instead is not
+/// worth it, since CC keeps the ref-resolution fallback private and a private
+/// copy could disagree with the review view.
+async fn changed_markdown_files(session_id: &str) -> HashSet<String> {
     let sid = match parse_session_id(session_id) {
         Ok(sid) => sid,
         Err(_) => return Default::default(),

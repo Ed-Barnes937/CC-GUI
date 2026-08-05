@@ -7,6 +7,7 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { confirmDialog, promptDialog, deleteSessionDialog } from "../../../toast";
+import { rankByRelevance } from "../../../markdownRelevance";
 import type { Comment, ReviewSnapshot } from "../../../review/model";
 import type { FsEntry, ProgramInfo, Seed, SessionRow, Snapshot } from "./types.testHelper";
 
@@ -260,17 +261,18 @@ class TauriSimulator {
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
       case "list_markdown_files": {
         // Mirrors the backend (files.rs MD_MAX_FILES): branch-changed docs
-        // first, then newest, cap applied after that ordering so it can only
-        // drop the irrelevant tail, total reported for the truncation row.
+        // first, then newest — the ordering exists so the cap can only drop the
+        // irrelevant tail — with total reported for the truncation row. The
+        // backend keeps its own copy of that comparator; here the app's own
+        // ranking stands in for it, so the two can't drift.
         const MD_MAX_FILES = 500;
-        const all = Object.entries(this.markdownFiles)
-          .map(([path, f]) => ({ path, mtime: f.mtime, changed_on_branch: f.changedOnBranch }))
-          .sort(
-            (a, b) =>
-              Number(b.changed_on_branch) - Number(a.changed_on_branch) ||
-              b.mtime - a.mtime ||
-              a.path.toLowerCase().localeCompare(b.path.toLowerCase()),
-          );
+        const all = rankByRelevance(
+          Object.entries(this.markdownFiles).map(([path, f]) => ({
+            path,
+            mtime: f.mtime,
+            changedOnBranch: f.changedOnBranch,
+          })),
+        ).map((f) => ({ path: f.path, mtime: f.mtime, changed_on_branch: f.changedOnBranch }));
         return { files: all.slice(0, MD_MAX_FILES), total: all.length };
       }
       case "read_session_file": {
