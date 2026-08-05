@@ -158,9 +158,9 @@ pub async fn list_markdown_files(session_id: String) -> Result<MarkdownListing, 
 /// marks the diff has invalidated (both content-keyed, so this only does
 /// earlier what opening the review would do anyway), and books a `review.open`
 /// telemetry event. A read-only changed-files accessor upstream would let this
-/// drop to a name-only diff; resolving the review base here instead is not
-/// worth it, since CC keeps the ref-resolution fallback private and a private
-/// copy could disagree with the review view.
+/// drop to a name-only diff (tracked in #106); resolving the review base here
+/// instead is not worth it, since CC keeps the ref-resolution fallback private
+/// and a private copy could disagree with the review view.
 async fn changed_markdown_files(session_id: &str) -> HashSet<String> {
     let sid = match parse_session_id(session_id) {
         Ok(sid) => sid,
