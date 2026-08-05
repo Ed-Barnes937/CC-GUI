@@ -18,15 +18,15 @@ prototype-stage; PR 1 below supersedes it.
 ### PR 1 — reader, production-grade (branch `markdown`, base `main`)
 
 - **Pin `@tanstack/markdown`** to the exact version, drop the `^` range
-  (ADR-0001).
-- **Relative images** (ADR-0004): new `read_session_image(session_id,
+  (ADR-0003).
+- **Relative images** (ADR-0006): new `read_session_image(session_id,
   rel_path)` command in `files.rs` (canonicalize + worktree-escape guard,
   base64 return, mirroring `read_review_image`). Frontend post-processes
   `<img>`: relative `src` → resolve via `resolveRelative` against the doc's
   dir → `data:` URI. MIME whitelist `png/jpg/jpeg/gif/svg/webp`; missing /
   non-whitelisted / >10MB → quiet broken-image placeholder. Remote `http(s)`
   images untouched (CSP is null; they already load).
-- **Shiki highlighting** (ADR-0003): post-process rendered
+- **Shiki highlighting** (ADR-0005): post-process rendered
   `<pre><code class="language-x">` blocks with the existing theme→Shiki
   mapping from the review view. One contained function; renderer stays
   swappable.
@@ -39,7 +39,7 @@ prototype-stage; PR 1 below supersedes it.
 
 ### PR 2 — live reload (stacked on PR 1)
 
-- **Polling** (ADR-0002): while a file is displayed, re-invoke
+- **Polling** (ADR-0004): while a file is displayed, re-invoke
   `read_session_file` every ~1.5s; re-render only when content changed.
 - **Scroll-preserving re-render**: keep the reading position stable (no
   flash, no jump) while an agent appends to the doc.
@@ -54,15 +54,15 @@ prototype-stage; PR 1 below supersedes it.
 
 ### PR 3 — session-aware ⌘M (stacked on PR 2)
 
-- **Relevance ladder** (ADR-0005): session-changed `.md` (merge-base diff +
+- **Relevance ladder** (ADR-0007): session-changed `.md` (merge-base diff +
   uncommitted, most recent mtime first) → `README.md` → picker.
   Backend: listing gains a changed-on-branch flag per file; the branch diff
   reuses CC's existing review diff machinery.
-- **Last-viewed rule** (ADR-0005): reopening returns to the last-viewed
+- **Last-viewed rule** (ADR-0007): reopening returns to the last-viewed
   file unless a session-changed doc is newer than that view. Last-viewed
   state is **in-memory per app run**, keyed by session id (not persisted —
   restarts fall back to the ladder, which is the right default anyway).
-- **Picker relevance order** (ADR-0005): default order = changed-first by
+- **Picker relevance order** (ADR-0007): default order = changed-first by
   mtime, then rest by mtime; typing filters by subsequence with relevance
   breaking ties.
 - **`view-plan` skill rewrite**: drop the pick-the-file instruction and the
@@ -89,6 +89,6 @@ simulated backend, per the existing pattern (stateful fakes, assert state):
 - Programmatic open-from-session channel (own design round; consent/focus
   UX).
 - Watcher-based reload (`notify`) only if a future feature needs instant or
-  repo-wide events (ADR-0002).
+  repo-wide events (ADR-0004).
 - Renderer swap (`marked` etc.) only if `@tanstack/markdown` stagnates
-  (ADR-0001).
+  (ADR-0003).

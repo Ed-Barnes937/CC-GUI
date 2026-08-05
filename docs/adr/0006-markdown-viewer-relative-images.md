@@ -1,4 +1,4 @@
-# ADR-0004: Relative images via a base64 read command
+# ADR-0006: Relative images via a base64 read command
 
 Date: 2026-08-01
 Status: accepted

@@ -5,8 +5,8 @@
 // newest-first (backed by `list_markdown_files` / `read_session_file` /
 // `read_session_image` in src-tauri/src/files.rs). In-repo .md links open in
 // the viewer; anchors scroll; everything else is inert. Repo-relative images
-// are swapped to data: URIs (ADR-0004); code blocks are Shiki-highlighted in
-// the active theme (ADR-0003) and re-render on theme switches.
+// are swapped to data: URIs (ADR-0006); code blocks are Shiki-highlighted in
+// the active theme (ADR-0005) and re-render on theme switches.
 
 import { invoke } from "@tauri-apps/api/core";
 import { parseMarkdown } from "@tanstack/markdown/parser";
@@ -228,7 +228,7 @@ function joinRepoPath(from: string, rel: string): string {
 // ------------------------------------------------------------------- images
 
 /** MIME by extension for repo-relative images; anything else gets a
- *  placeholder rather than a fetch (ADR-0004). */
+ *  placeholder rather than a fetch (ADR-0006). */
 const IMG_MIME: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -281,7 +281,7 @@ async function hydrateImages(docPath: string): Promise<void> {
 // -------------------------------------------------------------- code blocks
 
 /** Shiki-highlight fenced code blocks in place, matching the review view's
- *  theme (ADR-0003). Unknown languages and highlighter failures leave the
+ *  theme (ADR-0005). Unknown languages and highlighter failures leave the
  *  plain <pre> untouched. */
 async function highlightCode(docPath: string): Promise<void> {
   const blocks = Array.from(doc.querySelectorAll<HTMLElement>("pre > code[class*='language-']"));

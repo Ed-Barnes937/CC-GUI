@@ -1,4 +1,4 @@
-# ADR-0002: Live reload via polling, not a filesystem watcher
+# ADR-0004: Live reload via polling, not a filesystem watcher
 
 Date: 2026-08-01
 Status: accepted

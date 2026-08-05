@@ -1,4 +1,4 @@
-# ADR-0001: @tanstack/markdown as the markdown viewer's renderer
+# ADR-0003: @tanstack/markdown as the markdown viewer's renderer
 
 Date: 2026-08-01
 Status: accepted

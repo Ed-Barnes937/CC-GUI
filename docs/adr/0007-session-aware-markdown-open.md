@@ -1,4 +1,4 @@
-# ADR-0005: Session-aware ⌘M — relevance ladder for what opens
+# ADR-0007: Session-aware ⌘M — relevance ladder for what opens
 
 Date: 2026-08-02
 Status: accepted
