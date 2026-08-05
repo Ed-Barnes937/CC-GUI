@@ -170,12 +170,10 @@ async function pollCurrent(): Promise<void> {
   pollInFlight = true;
   try {
     const source = await invoke<string>("read_session_file", { sessionId: sid, relPath: path });
-    if (current !== path || !isMarkdownViewerOpen()) return;
+    if (sessionId !== sid || current !== path || !isMarkdownViewerOpen()) return;
     if (source === currentSource) return; // unchanged — don't touch the DOM
     currentSource = source;
-    const top = doc.scrollTop;
-    renderDoc(path, source);
-    doc.scrollTop = top;
+    renderDocPreservingScroll(path, source);
   } catch {
     // mid-write read failure — the last good rendering stays
   } finally {
@@ -240,13 +238,19 @@ function renderDoc(path: string, source: string): void {
   void highlightCode(path);
 }
 
+/** Re-render without the reader losing their place — the live-reload and
+ *  theme-switch paths both come through here. */
+function renderDocPreservingScroll(path: string, source: string): void {
+  const top = doc.scrollTop;
+  renderDoc(path, source);
+  doc.scrollTop = top;
+}
+
 // Re-render the current document when the theme switches so Shiki blocks pick
 // up the new theme; images come from the cache, and the scroll position holds.
 onThemeChange(() => {
   if (!isMarkdownViewerOpen() || current === null || currentSource === null) return;
-  const top = doc.scrollTop;
-  renderDoc(current, currentSource);
-  doc.scrollTop = top;
+  renderDocPreservingScroll(current, currentSource);
 });
 
 /** True when `s` starts with a URL scheme (http:, https:, data:, mailto:…). */

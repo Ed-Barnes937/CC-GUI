@@ -9,6 +9,8 @@ import { defaultSeed } from "../../network/seed.testHelper";
 // (installed after boot, so only the viewer's interval is faked): a runFor
 // past the interval fires exactly the polls it covers, no wall-clock sleeps.
 
+// Mirrors POLL_MS in src/markdownViewer.ts (not imported: that module builds
+// its DOM at import time, and this file runs in Node).
 const POLL = 1500;
 
 const LONG_DOC =

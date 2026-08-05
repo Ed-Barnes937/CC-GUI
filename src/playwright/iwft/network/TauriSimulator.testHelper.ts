@@ -139,8 +139,8 @@ class TauriSimulator {
 
   /** Write (or create) a fake .md file — the "agent edits the doc" seam the
    *  live-reload scenarios drive. */
-  setMarkdownFile(path: string, content: string, mtime = 0): void {
-    this.markdownFiles[path] = { content, mtime };
+  setMarkdownFile(path: string, content: string): void {
+    this.markdownFiles[path] = { content, mtime: 0 };
   }
 
   /** Make read_session_file throw until reset — a mid-write read failure. */
