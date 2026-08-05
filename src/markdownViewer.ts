@@ -4,7 +4,7 @@
 // button that drops a fuzzy file picker over every *.md in the worktree, in
 // relevance order (backed by `list_markdown_files` / `read_session_file` /
 // `read_session_image` in src-tauri/src/files.rs). Which doc opens is the
-// relevance ladder in ./markdownRelevance (ADR-0005): docs the session's branch
+// relevance ladder in ./markdownRelevance (ADR-0007): docs the session's branch
 // changed, newest first → README → the picker, with the last-viewed doc winning
 // unless the agent has touched something since. In-repo .md links open in
 // the viewer; anchors scroll; everything else is inert. Repo-relative images
@@ -39,7 +39,7 @@ type MdListing = { files: RawMdFile[]; total: number };
 
 let sessionId: string | null = null;
 let focusTerminal: () => void = () => {};
-/** The listing in relevance order (ADR-0005) — also the picker's row order. */
+/** The listing in relevance order (ADR-0007) — also the picker's row order. */
 let files: MdFile[] = [];
 /** Total *.md count before the backend's cap; > files.length when truncated. */
 let total = 0;

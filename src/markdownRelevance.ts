@@ -1,4 +1,4 @@
-// Session-aware ⌘M: pure decisions over the markdown listing (ADR-0005). The
+// Session-aware ⌘M: pure decisions over the markdown listing (ADR-0007). The
 // backend hands back `(path, mtime, changed_on_branch)` and ranks nothing; the
 // relevance order and the open-target ladder live here so they're plain
 // functions with plain tests.

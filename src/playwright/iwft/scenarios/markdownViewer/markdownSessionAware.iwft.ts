@@ -1,7 +1,7 @@
 import { test, expect } from "../../support/fixture.testHelper";
 import { defaultSeed } from "../../network/seed.testHelper";
 
-// Session-aware ⌘M (issue #101, ADR-0005): the viewer opens the doc that
+// Session-aware ⌘M (issue #101, ADR-0007): the viewer opens the doc that
 // matters now — docs the session's branch changed (newest first) → README →
 // straight into the picker — with the last-viewed doc winning unless the agent
 // has touched something since. The picker's default order is the same

@@ -130,7 +130,7 @@ pub struct MarkdownListing {
 /// Ordering here exists only so the `MD_MAX_FILES` cap can never cut a
 /// relevant doc: changed-on-branch first, then newest by mtime. The viewer's
 /// actual ladder and picker order are pure frontend functions over this
-/// listing (`src/markdownRelevance.ts`, ADR-0005); `total` lets the picker say
+/// listing (`src/markdownRelevance.ts`, ADR-0007); `total` lets the picker say
 /// how many were cut.
 #[tauri::command]
 pub async fn list_markdown_files(session_id: String) -> Result<MarkdownListing, String> {
