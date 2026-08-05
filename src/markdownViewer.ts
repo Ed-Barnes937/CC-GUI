@@ -6,7 +6,9 @@
 // `read_session_image` in src-tauri/src/files.rs). In-repo .md links open in
 // the viewer; anchors scroll; everything else is inert. Repo-relative images
 // are swapped to data: URIs (ADR-0006); code blocks are Shiki-highlighted in
-// the active theme (ADR-0005) and re-render on theme switches.
+// the active theme (ADR-0005) and re-render on theme switches. While the
+// viewer is open the displayed file is re-read on a ~1.5s poll (ADR-0004) so
+// a doc an agent is still writing stays live, scroll position intact.
 
 import { invoke } from "@tauri-apps/api/core";
 import { parseMarkdown } from "@tanstack/markdown/parser";
@@ -128,9 +130,11 @@ export async function openMarkdownViewer(params: OpenParams): Promise<void> {
     nameText.textContent = "no markdown files";
     doc.innerHTML = `<div class="mdv-empty">No markdown files in this repo.</div>`;
   }
+  startPolling();
 }
 
 export function closeMarkdownViewer(): void {
+  stopPolling();
   sessionId = null;
   current = null;
   currentSource = null;
@@ -139,6 +143,50 @@ export function closeMarkdownViewer(): void {
   root.classList.add("hidden");
   focusTerminal();
 }
+
+// ------------------------------------------------------------- live reload
+
+// Re-read the displayed file while the viewer is open (ADR-0002). Runs only
+// while the window is visible; a failed read keeps the last good rendering.
+const POLL_MS = 1500;
+let pollTimer: number | null = null;
+let pollInFlight = false;
+
+function startPolling(): void {
+  if (pollTimer !== null || document.visibilityState === "hidden") return;
+  pollTimer = window.setInterval(() => void pollCurrent(), POLL_MS);
+}
+
+function stopPolling(): void {
+  if (pollTimer === null) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+async function pollCurrent(): Promise<void> {
+  const sid = sessionId;
+  const path = current;
+  if (!sid || !path || pollInFlight) return;
+  pollInFlight = true;
+  try {
+    const source = await invoke<string>("read_session_file", { sessionId: sid, relPath: path });
+    if (current !== path || !isMarkdownViewerOpen()) return;
+    if (source === currentSource) return; // unchanged — don't touch the DOM
+    currentSource = source;
+    const top = doc.scrollTop;
+    renderDoc(path, source);
+    doc.scrollTop = top;
+  } catch {
+    // mid-write read failure — the last good rendering stays
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") stopPolling();
+  else if (isMarkdownViewerOpen()) startPolling();
+});
 
 // --------------------------------------------------------------- rendering
 
@@ -153,6 +201,7 @@ async function showFile(path: string): Promise<void> {
     source = await invoke<string>("read_session_file", { sessionId, relPath: path });
   } catch (e) {
     if (current !== path) return;
+    currentSource = null; // the poll re-renders once the file is readable
     doc.innerHTML = "";
     toast(`could not read ${path}: ${e}`, "error");
     return;
@@ -318,6 +367,24 @@ function openPicker(): void {
   cursor = 0;
   renderList();
   input.focus();
+  // Re-list in the background so files created since the viewer opened
+  // surface (the viewer never navigates on its own — they only appear here).
+  void refreshListing();
+}
+
+async function refreshListing(): Promise<void> {
+  const sid = sessionId;
+  if (!sid) return;
+  let listing: MdListing;
+  try {
+    listing = await invoke<MdListing>("list_markdown_files", { sessionId: sid });
+  } catch {
+    return; // stale listing stays — same stance as a failed poll read
+  }
+  if (sessionId !== sid || !isPickerOpen()) return;
+  files = listing.files;
+  total = listing.total;
+  renderList();
 }
 
 function closePicker(): void {

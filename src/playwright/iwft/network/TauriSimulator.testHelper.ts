@@ -42,6 +42,10 @@ class TauriSimulator {
   private markdownFiles: Record<string, { content: string; mtime: number }>;
   // Repo-relative image path → base64 bytes (read_session_image).
   private sessionImages: Record<string, string>;
+  // Live-reload seams: reads counted (to assert polling stopped) and a
+  // failure toggle (a failed poll must keep the last good rendering).
+  private markdownReadCount = 0;
+  private markdownReadsFail = false;
   private diffStats: Record<string, string>;
   private openedUrls: string[] = [];
   // Bytes the frontend wrote to a PTY (write_pty) — the file explorer's @path
@@ -131,6 +135,22 @@ class TauriSimulator {
    *  asserts the `@path` reference against. */
   getPtyWrites(): { tmuxSession: string; data: string }[] {
     return this.ptyWrites;
+  }
+
+  /** Write (or create) a fake .md file — the "agent edits the doc" seam the
+   *  live-reload scenarios drive. */
+  setMarkdownFile(path: string, content: string, mtime = 0): void {
+    this.markdownFiles[path] = { content, mtime };
+  }
+
+  /** Make read_session_file throw until reset — a mid-write read failure. */
+  setMarkdownReadsFail(fail: boolean): void {
+    this.markdownReadsFail = fail;
+  }
+
+  /** read_session_file calls so far — a stable count proves polling stopped. */
+  getMarkdownReadCount(): number {
+    return this.markdownReadCount;
   }
 
   // ----- event push (the backend's role; available for sidebar scenarios) -----
@@ -232,6 +252,8 @@ class TauriSimulator {
         return { files: all.slice(0, MD_MAX_FILES), total: all.length };
       }
       case "read_session_file": {
+        this.markdownReadCount++;
+        if (this.markdownReadsFail) throw "read failed";
         const file = this.markdownFiles[args.relPath as string];
         if (file === undefined) throw `cannot resolve path: ${args.relPath}`;
         return file.content;
