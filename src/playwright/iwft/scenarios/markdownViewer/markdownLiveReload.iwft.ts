@@ -1,7 +1,7 @@
 import { test, expect } from "../../support/fixture.testHelper";
 import { defaultSeed } from "../../network/seed.testHelper";
 
-// Live reload (issue #100, ADR-0002): while the viewer is open, the displayed
+// Live reload (issue #100, ADR-0004): while the viewer is open, the displayed
 // file is re-read on a ~1.5s poll and re-renders in place when its content
 // changed — scroll preserved, no re-render when unchanged, a failed read keeps
 // the last good rendering, and polling stops when the viewer closes or the

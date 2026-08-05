@@ -146,7 +146,7 @@ export function closeMarkdownViewer(): void {
 
 // ------------------------------------------------------------- live reload
 
-// Re-read the displayed file while the viewer is open (ADR-0002). Runs only
+// Re-read the displayed file while the viewer is open (ADR-0004). Runs only
 // while the window is visible; a failed read keeps the last good rendering.
 const POLL_MS = 1500;
 let pollTimer: number | null = null;
