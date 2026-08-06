@@ -192,15 +192,16 @@ pub struct SectionBucket {
     pub session_ids: Vec<String>,
 }
 
-/// Everything the sidebar renders: grouped sessions, the active view mode
-/// (shared with the TUI via state.json), section buckets when a section view
-/// is active, and the commander chip.
+/// Everything the sidebar renders: grouped sessions, section buckets (whenever
+/// sections are configured), the "move to section" names, and the commander
+/// chip. The active view mode is GUI-owned (persisted in the frontend's
+/// localStorage, like theming), so the backend no longer tracks it — it just
+/// supplies the section data and the frontend picks the layout.
 #[derive(Serialize, Clone)]
 pub struct Snapshot {
     pub groups: Vec<ProjectGroup>,
-    pub view_mode: String,
-    /// Section buckets (only when `view_mode` is a section view and sections
-    /// are configured).
+    /// Section buckets, present whenever sections are configured (the frontend
+    /// renders them only in its section views).
     pub sections: Option<Vec<SectionBucket>>,
     /// Names available for "move to section" (configured sections only).
     pub section_names: Vec<String>,
@@ -211,43 +212,32 @@ pub async fn build_snapshot(
     svc: &CommanderService,
     detect: Option<&mut AgentStateDetector>,
 ) -> Snapshot {
-    use claude_commander_core::config::ViewMode;
     let groups = build_groups(svc, detect).await;
     let config_sections = svc.read_config().sections;
-    let (view_mode, sections) = {
+    // Section buckets are the same for either section view (flat vs stacks) —
+    // the frontend chooses the layout — so compute them whenever sections are
+    // configured and let the frontend ignore them in project view.
+    let sections = if config_sections.is_empty() {
+        None
+    } else {
         let state = svc.store().read().await;
-        let mut mode = state.view_mode.unwrap_or_default();
-        if mode.is_section_view() && config_sections.is_empty() {
-            mode = ViewMode::ProjectGrouped;
-        }
-        let sections = if mode.is_section_view() {
-            let sessions: Vec<_> = state.sessions.values().cloned().collect();
-            Some(
-                claude_commander_core::session::build_sections(&sessions, &config_sections)
-                    .into_iter()
-                    .map(|s| SectionBucket {
-                        name: s.name,
-                        session_ids: s
-                            .sessions
-                            .iter()
-                            .map(|id| id.as_uuid().to_string())
-                            .collect(),
-                    })
-                    .collect(),
-            )
-        } else {
-            None
-        };
-        let mode_str = match mode {
-            ViewMode::ProjectGrouped => "project",
-            ViewMode::SectionGrouped => "sections",
-            ViewMode::SectionStacks => "section_stacks",
-        };
-        (mode_str.to_string(), sections)
+        let sessions: Vec<_> = state.sessions.values().cloned().collect();
+        Some(
+            claude_commander_core::session::build_sections(&sessions, &config_sections)
+                .into_iter()
+                .map(|s| SectionBucket {
+                    name: s.name,
+                    session_ids: s
+                        .sessions
+                        .iter()
+                        .map(|id| id.as_uuid().to_string())
+                        .collect(),
+                })
+                .collect(),
+        )
     };
     Snapshot {
         groups,
-        view_mode,
         sections,
         section_names: config_sections.iter().map(|s| s.name.clone()).collect(),
         commander: crate::commander::commander_status().await,
@@ -259,28 +249,6 @@ pub async fn get_groups() -> Result<Snapshot, String> {
     let svc = service().await?;
     let _ = svc.store().reload_if_changed().await;
     Ok(build_snapshot(svc, None).await)
-}
-
-/// Cycle or set the view mode ("project" / "sections" / "section_stacks"),
-/// persisted to state.json (shared with the TUI). Section views are rejected
-/// when no sections are configured, mirroring the TUI's cycle-skip.
-#[tauri::command]
-pub async fn set_view_mode(mode: String) -> Result<(), String> {
-    use claude_commander_core::config::ViewMode;
-    let svc = service().await?;
-    let parsed = match mode.as_str() {
-        "project" => ViewMode::ProjectGrouped,
-        "sections" => ViewMode::SectionGrouped,
-        "section_stacks" => ViewMode::SectionStacks,
-        other => return Err(format!("unknown view mode {other:?}")),
-    };
-    if parsed.is_section_view() && svc.read_config().sections.is_empty() {
-        return Err("no sections configured (add them in claude-commander config)".into());
-    }
-    svc.store()
-        .mutate(move |state| state.view_mode = Some(parsed))
-        .await
-        .map_err(|e| e.to_string())
 }
 
 /// Move a session to a section (manual pin), or clear its pin when `section`

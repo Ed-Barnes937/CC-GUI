@@ -43,7 +43,6 @@ export type ProjectGroup = {
 
 export type Snapshot = {
   groups: ProjectGroup[];
-  view_mode: string;
   sections: { name: string; session_ids: string[] }[] | null;
   section_names: string[];
   commander: { enabled: boolean; running: boolean };
@@ -53,6 +52,9 @@ export type Snapshot = {
  *  it crosses into the page via addInitScript serialization. */
 export type Seed = {
   snapshot: Snapshot;
+  /** GUI-owned session-list grouping, seeded into localStorage (`cc-view-mode`)
+   *  before boot. Absent → the frontend's default ("project"). */
+  viewMode?: string;
   /** Keyed by session id → the review for that session (answers open_review). */
   reviews: Record<string, ReviewSnapshot>;
   keybindings?: Record<string, string[]>;

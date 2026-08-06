@@ -165,7 +165,6 @@ type SectionBucket = { name: string; session_ids: string[] };
 
 type Snapshot = {
   groups: ProjectGroup[];
-  view_mode: string;
   sections: SectionBucket[] | null;
   section_names: string[];
   commander: { enabled: boolean; running: boolean };
@@ -1631,7 +1630,11 @@ void listen<{ session: string; ended: boolean }>("pty-exit", (event) => {
 
 let groups: ProjectGroup[] = [];
 let layout: "console" | "board" = (localStorage.getItem("cc-layout") as "console" | "board") ?? "console";
-let viewMode = "project";
+// GUI-owned session-list grouping, persisted in localStorage like the layout
+// and Status-grouping prefs. Upstream moved view mode into a TUI-private prefs
+// store the GUI can't reach, so the GUI owns it outright now; the backend just
+// supplies the section buckets and the frontend picks project vs section view.
+let viewMode = localStorage.getItem("cc-view-mode") ?? "project";
 let sections: SectionBucket[] | null = null;
 let sectionNames: string[] = [];
 // Key of the project header with an open create-input. In project view this is
@@ -1645,9 +1648,9 @@ let topInput: "add" | "scan" | null = null; // sidebar-top path input mode
 let projectFilter: string | null = null;
 
 // GUI-only "Status" grouping override (the GROUP BY control's third segment):
-// groups the sidebar by activity tier instead of the backend-owned viewMode —
-// the crate's ViewMode has no status variant, so like the layout preference
-// this lives in localStorage and leaves the backend mode untouched underneath.
+// groups the sidebar by activity tier instead of the section/project viewMode —
+// the crate's ViewMode has no status variant, so like viewMode and the layout
+// preference this lives in localStorage and layers over viewMode underneath.
 let statusGrouping = localStorage.getItem("cc-status-grouping") === "1";
 
 function setStatusGrouping(on: boolean): void {
@@ -1667,7 +1670,11 @@ let boardProjectFilter: Set<string> | null = null;
 // Hide section columns with zero visible cards (persisted).
 let hideEmptyColumns = localStorage.getItem("cc-board-hide-empty") === "1";
 
-const SECTION_VIEW = (): boolean => sections !== null;
+// Section layout is active only when the GUI-owned view mode selects it AND the
+// backend supplied section buckets (sections are always sent when configured,
+// so project view must be gated on viewMode, not merely on `sections`).
+const SECTION_VIEW = (): boolean =>
+  sections !== null && (viewMode === "sections" || viewMode === "section_stacks");
 
 /** Create-input key for a project sub-header inside a section. The `sect:`
  *  prefix can't collide with a bare project uuid (project-view key). */
@@ -2794,43 +2801,47 @@ async function createSessionInProject(group: ProjectGroup): Promise<void> {
   startSession(group, result.title, result.program || undefined);
 }
 
+/** Persist the GUI-owned view mode and repaint. Section views fall back to
+ *  "project" when no sections are configured (the backend used to reject them). */
+function applyViewMode(mode: string): void {
+  if ((mode === "sections" || mode === "section_stacks") && sectionNames.length === 0) {
+    mode = "project";
+  }
+  viewMode = mode;
+  localStorage.setItem("cc-view-mode", mode);
+  renderSidebar();
+}
+
 function cycleViewMode(): void {
+  // Backend grouping modes, then the GUI-only Status stop. Section modes drop
+  // out of the cycle when no sections are configured.
+  const modes = sectionNames.length ? ["project", "sections", "section_stacks"] : ["project"];
   if (statusGrouping) {
-    // Status (GUI-only) is the cycle's last stop; leaving it restarts the
-    // backend cycle at "project".
+    // Status (GUI-only) is the cycle's last stop; leaving it restarts at the top.
     setStatusGrouping(false);
-    invoke("set_view_mode", { mode: "project" })
-      .then(() => refreshNow())
-      .catch((e) => toast(`${e}`, "error"));
+    applyViewMode(modes[0]);
     return;
   }
-  if (viewMode === "section_stacks") {
+  const idx = modes.indexOf(viewMode);
+  if (idx === modes.length - 1) {
     setStatusGrouping(true);
     return;
   }
-  const order = ["project", "sections", "section_stacks"];
-  const next = order[(order.indexOf(viewMode) + 1) % order.length];
-  invoke("set_view_mode", { mode: next })
-    .then(() => refreshNow())
-    .catch((e) => toast(`${e}`, "error"));
+  applyViewMode(modes[idx + 1]);
 }
 
-/** Switch grouping to an explicit mode (the GROUP BY segmented control).
- *  viewMode is backend-owned — never set locally — so we round-trip through
- *  set_view_mode and let the next snapshot reflect it (mirror cycleViewMode). */
+/** Switch grouping to an explicit mode (the GROUP BY segmented control). */
 function setViewMode(mode: string): void {
   setStatusGrouping(false); // leaving the GUI-only Status override, if it's on
   if (mode === viewMode) return;
-  invoke("set_view_mode", { mode })
-    .then(() => refreshNow())
-    .catch((e) => toast(`${e}`, "error"));
+  applyViewMode(mode);
 }
 
 /** GROUP BY segmented control: [Sections | Projects | Status]. Sections and
- *  Projects are bound to the backend viewMode (Projects→"project",
- *  Sections→"sections"; "section_stacks" still counts as the Sections side and
- *  stays reachable via the palette's cycleViewMode). Status is the GUI-only
- *  tier grouping and overrides whichever backend mode sits underneath. */
+ *  Projects are bound to viewMode (Projects→"project", Sections→"sections";
+ *  "section_stacks" still counts as the Sections side and stays reachable via
+ *  the palette's cycleViewMode). Status is the GUI-only tier grouping and
+ *  overrides whichever viewMode sits underneath. */
 function renderGroupByBar(): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "group-by-bar";
@@ -3008,14 +3019,14 @@ function renderSidebar(): void {
     sessionsEl.appendChild(renderFilterBanner(filterGroup));
   }
 
-  // The GUI-only Status grouping overrides whichever backend mode is active.
+  // The GUI-only Status grouping overrides whichever view mode is active.
   if (statusGrouping) {
     sessionsEl.appendChild(renderNewSessionButton());
     renderStatusTiers();
     return;
   }
 
-  if (sections) {
+  if (SECTION_VIEW() && sections) {
     sessionsEl.appendChild(renderNewSessionButton());
     renderSections(sections);
     return;
@@ -4166,7 +4177,7 @@ function renderBoard(): void {
 function applySnapshot(snap: Snapshot): void {
   applyPendingOverlays(snap);
   groups = snap.groups;
-  viewMode = snap.view_mode;
+  // viewMode is GUI-owned (localStorage), not read back from the snapshot.
   sections = snap.sections;
   sectionNames = snap.section_names;
   commanderEnabled = snap.commander.enabled;

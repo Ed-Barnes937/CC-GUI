@@ -233,8 +233,8 @@ test.describe("stale remembered harness", () => {
 test.describe("create-session dialog entry point (section view)", () => {
   test.use({
     seed: {
+      viewMode: "sections",
       snapshot: makeSnapshot({
-        view_mode: "sections",
         section_names: ["Review"],
         sections: [
           { name: "In Progress", session_ids: ["sess-1"] },

@@ -3,18 +3,31 @@ import { makeSession, makeSnapshot } from "../../network/seed.testHelper";
 
 test("renders the seeded snapshot", async ({ sidebar }) => {
   await expect(sidebar.titles()).toHaveText(["fix login bug"]);
-  // Seeded view_mode "project" lights the Projects segment of GROUP BY.
+  // No seeded view mode → the frontend's "project" default lights Projects.
   expect(await sidebar.activeGrouping()).toBe("Projects");
 });
 
-test("cycles the view mode", async ({ sidebar }) => {
-  await sidebar.setGrouping("Sections");
+test.describe("switches the view mode", () => {
+  test.use({
+    seed: {
+      snapshot: makeSnapshot({
+        section_names: ["Review"],
+        sections: [{ name: "In Progress", session_ids: ["sess-1"] }],
+      }),
+      reviews: {},
+    },
+  });
 
-  // set_view_mode mutated the fake; the frontend re-read it via get_groups.
-  expect(await sidebar.storedViewMode()).toBe("sections");
-  await expect(async () => {
-    expect(await sidebar.activeGrouping()).toBe("Sections");
-  }).toPass();
+  test("Sections lights up and persists to localStorage", async ({ sidebar }) => {
+    await sidebar.setGrouping("Sections");
+
+    // View mode is GUI-owned: the click wrote localStorage and re-rendered
+    // locally (no backend round-trip).
+    expect(await sidebar.storedViewMode()).toBe("sections");
+    await expect(async () => {
+      expect(await sidebar.activeGrouping()).toBe("Sections");
+    }).toPass();
+  });
 });
 
 test("creates a session (Enter commits)", async ({ sidebar }) => {
@@ -122,8 +135,8 @@ test.describe("glyphs and badges", () => {
 test.describe("drag a session to a section", () => {
   test.use({
     seed: {
+      viewMode: "sections",
       snapshot: makeSnapshot({
-        view_mode: "sections",
         section_names: ["Review", "Done"],
         sections: [
           { name: "In Progress", session_ids: ["sess-1"] },
@@ -195,8 +208,8 @@ test("no full-width new-session button in project view", async ({ sidebar }) => 
 test.describe("project sub-headers in section views", () => {
   test.use({
     seed: {
+      viewMode: "sections",
       snapshot: makeSnapshot({
-        view_mode: "sections",
         section_names: ["Review"],
         sections: [
           { name: "In Progress", session_ids: ["sess-1", "sess-2"] },
@@ -251,8 +264,8 @@ test.describe("project sub-headers in section views", () => {
 test.describe("creating in a sessionless project (section view)", () => {
   test.use({
     seed: {
+      viewMode: "sections",
       snapshot: makeSnapshot({
-        view_mode: "sections",
         section_names: ["Review"],
         sections: [
           { name: "In Progress", session_ids: ["sess-1"] },

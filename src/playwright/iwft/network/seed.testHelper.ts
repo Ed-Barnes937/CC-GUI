@@ -45,7 +45,6 @@ export function makeSnapshot(over: Partial<Snapshot> = {}): Snapshot {
         sessions: [makeSession()],
       },
     ],
-    view_mode: "project",
     sections: null,
     section_names: [],
     commander: { enabled: false, running: false },

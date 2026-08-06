@@ -31,9 +31,9 @@ export class SidebarPageObject extends AppPageObject {
     return this.sessions.locator(".group-by-bar .segment.active").innerText();
   }
 
-  /** Drive the GROUP BY segmented control to a side. Sections/Projects
-   *  round-trip through set_view_mode, like the old cycle toggle did; Status
-   *  is GUI-only and re-renders without touching the backend mode. */
+  /** Drive the GROUP BY segmented control to a side. View mode is GUI-owned
+   *  (persisted to localStorage) and re-renders locally — Sections, Projects,
+   *  and Status all switch without touching the backend. */
   setGrouping(segment: "Sections" | "Projects" | "Status"): Promise<void> {
     return this.step(`setGrouping: ${segment}`, () =>
       this.sessions
