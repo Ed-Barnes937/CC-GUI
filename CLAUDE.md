@@ -72,7 +72,16 @@ in `src/help.ts` (the `?` overlay) and the keyboard table in `README.md`.
 
 ## Git conventions
 
-- **Never force push.** Create new commits instead.
+- **Default to new commits, not rewritten history.** To change something you
+  already pushed, add a commit — don't amend-and-force.
+- **Force-pushing is a last resort, and always `--force-with-lease`** (never a
+  bare `--force`, which discards whatever landed while you weren't looking).
+  Never force-push `main` or any branch someone else is working on.
+  - The one routine exception: maintaining a stack of PRs. `gh stack rebase`
+    replays each branch onto its parent and `gh stack submit` force-pushes the
+    result — that's how the tool works, and it doesn't need asking each time.
+  - Anywhere else, **ask first.** An agent must get the user's say-so before
+    force-pushing a branch that already has a PR on it.
 - Branch names: lowercase with hyphens, no slashes (e.g. `fix-terminal-path`).
 - Commit signing is on (SSH/1Password) — don't disable it.
 
