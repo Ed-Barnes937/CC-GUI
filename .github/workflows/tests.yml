@@ -8,6 +8,15 @@ on:
 # Frontend test layers only (Vitest units + .iwft). Both run on Node alone —
 # the .iwft layer boots the Vite frontend with the Tauri backend simulated, so
 # no Rust/Tauri toolchain is needed here.
+
+# Belt-and-braces: claude-commander-core bakes a telemetry ingest credential into
+# every build and its `cfg!(test)` opt-out only applies to core's own test runs,
+# not to us as a downstream consumer. The simulated backend never emits today —
+# but if a real Rust/e2e layer is ever added, DO_NOT_TRACK keeps CI runs out of
+# the live usage stream.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest

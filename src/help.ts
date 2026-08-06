@@ -53,6 +53,15 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     ],
   ],
   [
+    "Markdown viewer",
+    [
+      ["Cmd/Ctrl+M", "Open/close the viewer on the doc this session changed last (else README)"],
+      ["/ or click file name", "Fuzzy file picker, changed docs first (↑/↓ pick, Enter opens)"],
+      ["Click an in-repo .md link", "Open that file in the viewer"],
+      ["Esc", "Close the picker, then the viewer"],
+    ],
+  ],
+  [
     "Board",
     [
       ["Arrow keys", "Move focus between cards and columns"],
