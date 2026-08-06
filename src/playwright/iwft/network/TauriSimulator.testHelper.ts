@@ -140,8 +140,9 @@ class TauriSimulator {
     return this.fileReads;
   }
 
+  /** GUI-owned view mode, read from where the frontend now persists it. */
   getViewMode(): string {
-    return this.snapshot.view_mode;
+    return localStorage.getItem("cc-view-mode") ?? "project";
   }
 
   /** URLs the frontend asked the platform opener to launch (open_external). */
@@ -210,9 +211,6 @@ class TauriSimulator {
     switch (cmd) {
       case "get_groups":
         return this.snapshot;
-      case "set_view_mode":
-        this.snapshot.view_mode = args.mode as string;
-        return null;
       case "get_create_options":
         return { default_program: this.defaultProgram, programs: this.programs, sections: [] };
       case "create_session":

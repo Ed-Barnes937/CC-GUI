@@ -82,7 +82,6 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             groups::get_groups,
-            groups::set_view_mode,
             groups::move_to_section,
             sessions::get_session_detail,
             sessions::generate_summary,

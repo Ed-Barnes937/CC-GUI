@@ -37,7 +37,7 @@ function tierSnapshot(workingState: string): Snapshot {
 test.describe("status grouping tiers", () => {
   test.use({ seed: { snapshot: tierSnapshot("working"), reviews: {} } });
 
-  test("buckets rows into tiers and leaves the backend view mode untouched", async ({
+  test("buckets rows into tiers and leaves the view mode untouched", async ({
     sidebar,
   }) => {
     await sidebar.setGrouping("Status");
@@ -48,7 +48,7 @@ test.describe("status grouping tiers", () => {
     expect(await sidebar.renderedTierOf("working one")).toBe("Active");
     expect(await sidebar.renderedTierOf("stopped one")).toBe("Parked");
     expect(await sidebar.renderedTierOf("hibernating one")).toBe("Parked");
-    // Status is GUI-only: the fake's view mode was never written.
+    // Status is GUI-only, layered over the view mode without changing it.
     expect(await sidebar.storedViewMode()).toBe("project");
   });
 
@@ -73,7 +73,7 @@ test.describe("status grouping tiers", () => {
     }).toPass();
   });
 
-  test("switching back to Projects restores the backend grouping", async ({ sidebar }) => {
+  test("switching back to Projects restores the underlying grouping", async ({ sidebar }) => {
     await sidebar.setGrouping("Status");
     await sidebar.setGrouping("Projects");
 

@@ -26,7 +26,7 @@ uuid = "1"
 # CC v0.26.0 links PipeWire (libspa-sys) on Linux and needs libpipewire dev
 # headers we don't ship in CI. The GUI never uses CC's in-process audio; we keep
 # `clipboard` for the embedded TUI's clipboard support.
-claude-commander-core = { git = "https://github.com/sizeak/claude-commander", tag = "v0.30.1", default-features = false, features = [
+claude-commander-core = { git = "https://github.com/sizeak/claude-commander", tag = "v0.32.0", default-features = false, features = [
     "clipboard",
 ] }
 futures = "0.3.32"

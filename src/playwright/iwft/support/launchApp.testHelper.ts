@@ -13,6 +13,8 @@ import type { Seed } from "../network/types.testHelper";
 export async function launchApp(page: Page, seed: Seed): Promise<void> {
   await page.addInitScript((s) => {
     (window as unknown as { __CC_IWFT_SEED__: unknown }).__CC_IWFT_SEED__ = s;
+    // View mode is GUI-owned (localStorage), so seed it before the app boots.
+    if (s.viewMode) localStorage.setItem("cc-view-mode", s.viewMode);
   }, seed as unknown as Record<string, never>);
   await page.addInitScript({ path: SIMULATOR_BUNDLE });
   await page.goto("/");
