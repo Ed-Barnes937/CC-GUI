@@ -7,6 +7,7 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { confirmDialog, promptDialog, deleteSessionDialog } from "../../../toast";
+import { rankByRelevance } from "../../../markdownRelevance";
 import type { Comment, ReviewSnapshot } from "../../../review/model";
 import type { FsEntry, ProgramInfo, Seed, SessionRow, Snapshot } from "./types.testHelper";
 
@@ -38,6 +39,18 @@ class TauriSimulator {
   private defaultProgram: string;
   private browsePath: string | null;
   private fileTree: Record<string, FsEntry[]>;
+  // The markdown viewer's fake repo: .md path → content, mtime, and whether the
+  // session's branch changed it (the relevance ladder's signal).
+  private markdownFiles: Record<
+    string,
+    { content: string; mtime: number; changedOnBranch: boolean }
+  >;
+  // Repo-relative image path → base64 bytes (read_session_image).
+  private sessionImages: Record<string, string>;
+  // Live-reload seams: reads counted (to assert polling stopped) and a
+  // failure toggle (a failed poll must keep the last good rendering).
+  private markdownReadCount = 0;
+  private markdownReadsFail = false;
   private diffStats: Record<string, string>;
   private openedUrls: string[] = [];
   // Bytes the frontend wrote to a PTY (write_pty) — the file explorer's @path
@@ -58,6 +71,15 @@ class TauriSimulator {
     this.defaultProgram = seed.defaultProgram ?? "claude";
     this.browsePath = seed.browsePath ?? null;
     this.fileTree = seed.fileTree ?? {};
+    this.markdownFiles = Object.fromEntries(
+      Object.entries(seed.markdownFiles ?? {}).map(([path, v]) => [
+        path,
+        typeof v === "string"
+          ? { content: v, mtime: 0, changedOnBranch: false }
+          : { ...v, changedOnBranch: v.changedOnBranch ?? false },
+      ]),
+    );
+    this.sessionImages = seed.sessionImages ?? {};
     this.diffStats = seed.diffStats ?? {};
     this.comments = {};
     this.reviewed = {};
@@ -120,6 +142,32 @@ class TauriSimulator {
    *  asserts the `@path` reference against. */
   getPtyWrites(): { tmuxSession: string; data: string }[] {
     return this.ptyWrites;
+  }
+
+  /** Write (or create) a fake .md file — the "agent edits the doc" seam the
+   *  live-reload and relevance-ladder scenarios drive. Unspecified mtime /
+   *  changed-on-branch keep an existing file's values. */
+  setMarkdownFile(
+    path: string,
+    content: string,
+    opts?: { mtime?: number; changedOnBranch?: boolean },
+  ): void {
+    const prev = this.markdownFiles[path];
+    this.markdownFiles[path] = {
+      content,
+      mtime: opts?.mtime ?? prev?.mtime ?? 0,
+      changedOnBranch: opts?.changedOnBranch ?? prev?.changedOnBranch ?? false,
+    };
+  }
+
+  /** Make read_session_file throw until reset — a mid-write read failure. */
+  setMarkdownReadsFail(fail: boolean): void {
+    this.markdownReadsFail = fail;
+  }
+
+  /** read_session_file calls so far — a stable count proves polling stopped. */
+  getMarkdownReadCount(): number {
+    return this.markdownReadCount;
   }
 
   // ----- event push (the backend's role; available for sidebar scenarios) -----
@@ -211,6 +259,34 @@ class TauriSimulator {
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
+      case "list_markdown_files": {
+        // Mirrors the backend (files.rs MD_MAX_FILES): branch-changed docs
+        // first, then newest — the ordering exists so the cap can only drop the
+        // irrelevant tail — with total reported for the truncation row. The
+        // backend keeps its own copy of that comparator; here the app's own
+        // ranking stands in for it, so the two can't drift.
+        const MD_MAX_FILES = 500;
+        const all = rankByRelevance(
+          Object.entries(this.markdownFiles).map(([path, f]) => ({
+            path,
+            mtime: f.mtime,
+            changedOnBranch: f.changedOnBranch,
+          })),
+        ).map((f) => ({ path: f.path, mtime: f.mtime, changed_on_branch: f.changedOnBranch }));
+        return { files: all.slice(0, MD_MAX_FILES), total: all.length };
+      }
+      case "read_session_file": {
+        this.markdownReadCount++;
+        if (this.markdownReadsFail) throw "read failed";
+        const file = this.markdownFiles[args.relPath as string];
+        if (file === undefined) throw `cannot resolve path: ${args.relPath}`;
+        return file.content;
+      }
+      case "read_session_image": {
+        const bytes = this.sessionImages[args.relPath as string];
+        if (bytes === undefined) throw `cannot resolve path: ${args.relPath}`;
+        return bytes;
+      }
       case "open_external":
         this.openedUrls.push(args.url as string);
         return null;

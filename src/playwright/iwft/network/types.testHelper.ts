@@ -67,6 +67,18 @@ export type Seed = {
   /** The file explorer's fake filesystem: directory contents keyed by path
    *  relative to the session's repo root ("" = root). Answers list_session_dir. */
   fileTree?: Record<string, FsEntry[]>;
+  /** The markdown viewer's fake repo: repo-relative .md path → file content
+   *  (a bare string gets mtime 0 and no branch changes). `changedOnBranch`
+   *  seeds the "the session's branch touched this doc" flag the relevance
+   *  ladder keys off. Answers list_markdown_files (relevance-ordered, capped at
+   *  500 with a total, mirroring the backend) / read_session_file. */
+  markdownFiles?: Record<
+    string,
+    string | { content: string; mtime: number; changedOnBranch?: boolean }
+  >;
+  /** Repo-relative image path → base64 bytes, answering read_session_image.
+   *  A path absent here throws, like a missing/oversized file in the backend. */
+  sessionImages?: Record<string, string>;
   /** Per-session diffstat summary (git shortstat style, e.g. "3 files changed,
    *  124 insertions(+), 38 deletions(-)") — feeds get_session_detail. */
   diffStats?: Record<string, string>;

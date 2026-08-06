@@ -12,6 +12,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { openReview, closeReview } from "./review";
 import { openExplorer, closeExplorer, isExplorerOpen } from "./fileExplorer";
+import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewer";
 import { toast, confirmDialog, promptDialog, deleteSessionDialog } from "./toast";
 import { makeResizable, adjustPanelWidth } from "./resize";
 import { showContextMenu, MenuItem } from "./menu";
@@ -1283,6 +1284,36 @@ function openFileExplorer(): void {
     focusTerminal: () => terminals.get(name)?.term.focus(),
   });
 }
+
+// Cmd+M toggles the markdown viewer over the active session's repo, same
+// capture-phase accel pattern as Cmd+E below.
+function openMarkdownViewerForActiveSession(): void {
+  const name = activeTerm;
+  const s = name
+    ? groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
+    : undefined;
+  if (!name || !s) {
+    toast("No active session", "error");
+    return;
+  }
+  void openMarkdownViewer({
+    sessionId: s.id,
+    focusTerminal: () => terminals.get(name)?.term.focus(),
+  });
+}
+window.addEventListener(
+  "keydown",
+  (e) => {
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const accel = (e.metaKey && !e.ctrlKey) || (e.ctrlKey && !e.metaKey && !isMac);
+    if (e.key !== "m" || !accel || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (isMarkdownViewerOpen()) closeMarkdownViewer();
+    else openMarkdownViewerForActiveSession();
+  },
+  true,
+);
 
 // Cmd+E toggles the file explorer. On Linux/Windows (.deb/.AppImage), which have
 // no Cmd, Ctrl+E is also accepted so keyboard users still have an open path; on
@@ -4220,6 +4251,7 @@ registerPaletteProvider(() => [
     action: () => commanderChip.click(),
   },
   { label: "Open file explorer", hint: "command", icon: "▤", iconTone: "info", shortcut: "⌘E", action: openFileExplorer },
+  { label: "Markdown viewer", hint: "command", icon: "◫", iconTone: "info", shortcut: "⌘M", action: openMarkdownViewerForActiveSession },
   { label: "Settings", hint: "command", icon: "⚙", iconTone: "dim", shortcut: kb("show_settings"), action: () => void openSettings() },
   { label: "Help", hint: "command", icon: "?", iconTone: "dim", shortcut: kb("show_help"), action: toggleHelp },
 ]);
