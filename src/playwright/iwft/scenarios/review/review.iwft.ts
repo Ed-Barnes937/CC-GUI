@@ -325,6 +325,97 @@ test.describe("across file statuses", () => {
   });
 });
 
+// ----- hunk expansion (ADR 0002) -----
+// A modified file whose hunk starts at line 5, leaving lines 1–4 as an
+// expandable region above it. The seeded full contents match the hunk's
+// context/addition lines, so hydration passes stale-content validation.
+const expandableFile: FileDiff = {
+  old_path: "notes.txt",
+  new_path: "notes.txt",
+  status: "modified",
+  added: 2,
+  removed: 1,
+  binary: null,
+  hunks: [
+    {
+      old_start: 5,
+      old_lines: 3,
+      new_start: 5,
+      new_lines: 4,
+      header: "",
+      lines: [
+        { origin: "context", old_lineno: 5, new_lineno: 5, content: "alpha" },
+        { origin: "deletion", old_lineno: 6, new_lineno: null, content: "beta old" },
+        { origin: "addition", old_lineno: null, new_lineno: 6, content: "beta new" },
+        { origin: "addition", old_lineno: null, new_lineno: 7, content: "gamma" },
+        { origin: "context", old_lineno: 7, new_lineno: 8, content: "delta" },
+      ],
+    },
+  ],
+};
+const OLD_CONTENTS = "one\ntwo\nthree\nfour\nalpha\nbeta old\ndelta\n";
+const NEW_CONTENTS = "one\ntwo\nthree\nfour\nalpha\nbeta new\ngamma\ndelta\n";
+
+test.describe("hunk expansion", () => {
+  test.use({
+    seed: {
+      ...defaultSeed(),
+      reviews: { [SESSION_ID]: makeReview({ diff: { files: [expandableFile] } }) },
+      reviewFiles: { [SESSION_ID]: { "notes.txt": { old: OLD_CONTENTS, new: NEW_CONTENTS } } },
+    },
+  });
+
+  test("arrows appear once the file hydrates", async ({ review }) => {
+    // Pierre calls the loader eagerly on first render; once both sides load
+    // and validation passes, the separator grows expansion arrows.
+    await expect(review.expandButtons().first()).toBeVisible();
+    // The hunk itself still renders as before.
+    await expect(review.line("beta new")).toBeVisible();
+  });
+
+  test("expanding reveals the unchanged context above the hunk", async ({ review }) => {
+    await review.expandFirst();
+    // The whole 4-line gap fits in one default-sized expansion.
+    await expect(review.expandedLines()).toHaveCount(4);
+    await expect(review.expandedLine("two")).toBeVisible();
+  });
+
+  test("expanded rows are read-only: clicking one opens no composer", async ({ review }) => {
+    await review.expandFirst();
+    await review.expandedLine("two").click();
+    await expect(review.diffTextarea()).toHaveCount(0);
+
+    // A hunk line still opens the composer, so the pane stayed interactive.
+    await review.selectLine("beta new");
+    await expect(review.diffTextarea()).toBeVisible();
+  });
+});
+
+test.describe("hunk expansion with a drifted working tree", () => {
+  // The live new side no longer matches the snapshot's hunk (line 6 changed
+  // after open), so stale-content validation fails the loader.
+  const drifted = "one\ntwo\nthree\nfour\nalpha\nbeta CHANGED\ngamma\ndelta\n";
+  test.use({
+    seed: {
+      ...defaultSeed(),
+      reviews: { [SESSION_ID]: makeReview({ diff: { files: [expandableFile] } }) },
+      reviewFiles: { [SESSION_ID]: { "notes.txt": { old: OLD_CONTENTS, new: drifted } } },
+    },
+  });
+
+  test("yields no arrows — the file stays unexpandable until refresh", async ({ review }) => {
+    // Wait until the loader actually read the new side, so "no arrows" means
+    // validation rejected hydration rather than hydration not having run yet.
+    await expect
+      .poll(async () => (await review.storedFileReads()).length)
+      .toBeGreaterThan(0);
+    await expect(review.expandButtons()).toHaveCount(0);
+    // The snapshot's own hunk still renders and stays commentable.
+    await review.selectLine("beta new");
+    await expect(review.diffTextarea()).toBeVisible();
+  });
+});
+
 test.describe("with two files", () => {
   const emptyFile = (name: string): FileDiff => ({
     old_path: name,

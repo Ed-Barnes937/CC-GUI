@@ -89,4 +89,8 @@ export type Seed = {
   programs?: ProgramInfo[];
   /** default_program answered by get_create_options (defaults to "claude"). */
   defaultProgram?: string;
+  /** Full file contents answering read_review_file (hunk expansion), keyed by
+   *  session id → file path → side. A missing entry rejects the invoke, like
+   *  the backend does for an unreadable path — the file just stays partial. */
+  reviewFiles?: Record<string, Record<string, { old?: string; new?: string }>>;
 };

@@ -5,6 +5,30 @@ these terms as defined here, not synonyms.
 
 ## Glossary
 
+### Review
+
+- **Review Snapshot** — the parsed base→working-tree diff plus re-anchored
+  comments for one session, frozen at open/refresh time. Everything the
+  review pane shows derives from it. _Avoid_: diff state, review data.
+- **Partial Diff** — a file's diff knowing only the lines its hunks mention,
+  as parsed from patch text. The opposite of a hydrated diff.
+  _Avoid_: incomplete diff, patch-only diff.
+- **Hydration** — upgrading a partial diff in place with the full contents of
+  both file sides, making expansion possible. _Avoid_: loading, enrichment.
+- **Expansion** — revealing unchanged file lines between or around a file's
+  hunks. Expanded context is read-only — comments target the change, not the
+  surroundings. _Avoid_: unfolding, context reveal.
+- **Snapshot Staleness** — the drift between a review snapshot and the live
+  working tree, which the agent may have modified since open/refresh.
+  Anything combining snapshot data with live reads must tolerate it.
+  _Avoid_: race, desync.
+- **Orphan Comment** — a staged comment whose anchor line is no longer
+  rendered in the current diff. Shown in a separate section rather than
+  inline. _Avoid_: stranded comment (reserved for stranded *files*),
+  dangling comment.
+
+### Markdown viewer
+
 - **Markdown viewer** — the `Cmd+M` distraction-free reader
   (`src/markdownViewer.ts`) over the active session's repo docs. Distinct
   from the **file explorer** (`Cmd+E`, browses all files to drop `@path`

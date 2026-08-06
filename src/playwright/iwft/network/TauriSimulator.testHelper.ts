@@ -52,6 +52,7 @@ class TauriSimulator {
   private markdownReadCount = 0;
   private markdownReadsFail = false;
   private diffStats: Record<string, string>;
+  private reviewFiles: Record<string, Record<string, { old?: string; new?: string }>>;
   private openedUrls: string[] = [];
   // Bytes the frontend wrote to a PTY (write_pty) — the file explorer's @path
   // reference lands here, in order.
@@ -59,6 +60,9 @@ class TauriSimulator {
   // Section moves the frontend actually dispatched (a no-op drop short-circuits
   // before invoke, so this stays empty — how a negative test tells them apart).
   private sectionMoves: { id: string; section: string | null }[] = [];
+  // read_review_file calls the frontend made (including ones answered with a
+  // rejection) — how a drift test knows the expansion loader actually ran.
+  private fileReads: { path: string; side: string }[] = [];
 
   constructor(seed: Seed) {
     this.snapshot = seed.snapshot;
@@ -81,6 +85,7 @@ class TauriSimulator {
     );
     this.sessionImages = seed.sessionImages ?? {};
     this.diffStats = seed.diffStats ?? {};
+    this.reviewFiles = seed.reviewFiles ?? {};
     this.comments = {};
     this.reviewed = {};
     for (const [id, review] of Object.entries(seed.reviews)) {
@@ -127,6 +132,12 @@ class TauriSimulator {
    *  drop fired nothing. */
   getSectionMoves(): { id: string; section: string | null }[] {
     return this.sectionMoves;
+  }
+
+  /** read_review_file calls made so far, in order — lets a test wait until the
+   *  expansion loader ran before asserting arrows did (or didn't) render. */
+  getFileReads(): { path: string; side: string }[] {
+    return this.fileReads;
   }
 
   getViewMode(): string {
@@ -308,6 +319,8 @@ class TauriSimulator {
         return false; // restartRequired
       case "open_review":
         return this.openReview(args.id as string);
+      case "read_review_file":
+        return this.readReviewFile(args.id as string, args.path as string, args.side as string);
       case "create_comment":
         return this.createComment(args as unknown as CreateCommentArgs);
       case "delete_comment":
@@ -525,6 +538,16 @@ class TauriSimulator {
     }
     marks.add(path);
     return true;
+  }
+
+  /** Full contents of one side of a review file (hunk expansion). Rejects when
+   *  unseeded, as the backend does for an unreadable path — the frontend's
+   *  loader fails and the file simply stays unexpandable. */
+  private readReviewFile(id: string, path: string, side: string): string {
+    this.fileReads.push({ path, side });
+    const contents = this.reviewFiles[id]?.[path]?.[side as "old" | "new"];
+    if (contents === undefined) throw new Error(`no seeded review file: ${path} (${side})`);
+    return contents;
   }
 
   private createComment(a: CreateCommentArgs): null {
