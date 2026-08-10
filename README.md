@@ -22,7 +22,7 @@ It embeds `claude-commander` directly (as a library) and drives the same tmux-ba
 ### Homebrew (macOS, Apple Silicon)
 
 ```sh
-brew install --cask genio-learn/tap/cc-gui
+brew install --cask ed-barnes937/tap/cc-gui
 ```
 
 The app is unsigned, so macOS quarantines it — but the cask clears the quarantine
@@ -34,7 +34,7 @@ the app as *"damaged"*, clear the flag manually:
 
 ### Manual download
 
-Grab the latest build from [Releases](https://github.com/genio-learn/CC-GUI/releases):
+Grab the latest build from [Releases](https://github.com/Ed-Barnes937/CC-GUI/releases):
 
 - **macOS (Apple Silicon)** — `CC-GUI_<version>_aarch64.dmg` (`aarch64` = ARM64 = Apple Silicon)
 - **Linux** — `CC-GUI_<version>_amd64.AppImage` (portable, runs on any distro) or `CC-GUI_<version>_amd64.deb`
@@ -63,7 +63,7 @@ To build from source instead, follow the rest of this guide.
 ## Setup
 
 ```sh
-git clone git@github.com:genio-learn/CC-GUI.git
+git clone git@github.com:Ed-Barnes937/CC-GUI.git
 cd CC-GUI
 npm install
 ```

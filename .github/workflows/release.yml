@@ -85,10 +85,10 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-  # Bump the Homebrew cask in genio-learn/homebrew-tap to this release: hash the
+  # Bump the Homebrew cask in Ed-Barnes937/homebrew-tap to this release: hash the
   # just-built macOS DMG and push version + sha256 into Casks/cc-gui.rb. Requires
   # a HOMEBREW_TAP_TOKEN repo secret — a PAT (or fine-grained token) with write
-  # access to genio-learn/homebrew-tap, since the default GITHUB_TOKEN can't push
+  # access to Ed-Barnes937/homebrew-tap, since the default GITHUB_TOKEN can't push
   # to another repo. If the secret is absent the step no-ops (release still ships).
   update-cask:
     needs: release
@@ -115,7 +115,7 @@ jobs:
 
           # Clone the tap with a token that can push, rewrite the two version-
           # specific lines (the url derives the rest from #{version}), push back.
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/genio-learn/homebrew-tap.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/Ed-Barnes937/homebrew-tap.git" tap
           cd tap
           sed -i "s/^  version \".*\"/  version \"${version}\"/" Casks/cc-gui.rb
           sed -i "s/^  sha256 \".*\"/  sha256 \"${sha}\"/"      Casks/cc-gui.rb

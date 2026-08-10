@@ -12,7 +12,7 @@ as a **pinned git dependency** — Cargo fetches it on the first build, so no
 separate checkout is required.
 
 ```sh
-git clone git@github.com:genio-learn/CC-GUI.git
+git clone git@github.com:Ed-Barnes937/CC-GUI.git
 cd CC-GUI
 npm install
 ```

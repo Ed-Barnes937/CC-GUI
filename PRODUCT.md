@@ -97,7 +97,7 @@ Technical constraints:
 
 ## Brand Commitments
 
-- **Name**: CC-GUI, under the `genio-learn` org.
+- **Name**: CC-GUI, under the `Ed-Barnes937` personal account.
 - **Binding constraints future design work must preserve** (user-confirmed):
   - **Native-desktop feel** — must read as a real native desktop app (window
     chrome, keyboard-first, dense), never a website in a frame.
