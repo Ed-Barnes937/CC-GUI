@@ -27,9 +27,18 @@ import {
   rebindActions,
 } from "./keys";
 import { openSettings } from "./settings";
-import { statusChip, commentsChip, pullBlockedChip, stackChip, shellChip, stateChipInfo, stateTier, STATUS_TIERS, type StatusState, type StatusTier } from "./status";
+import { commentsChip, pullBlockedChip, stackChip, shellChip, stateChipInfo, STATUS_TIERS, type StatusTier } from "./status";
 import { noTextAssist } from "./dom";
 import { draggable } from "./drag";
+import {
+  applyStatusGlyph,
+  sessionStateKey,
+  sessionStateWord,
+  sessionStatusChip,
+  sessionTier,
+  statusGlyph,
+} from "./session/glyph";
+import { createSessionInProject, projectPickerItems, startSession } from "./session/create";
 import {
   initTheme,
   setMode,
@@ -43,7 +52,7 @@ import {
   type Theme,
 } from "./theme";
 import { openThemeModal } from "./themeModal";
-import { createHarnessPicker, createSessionDialog, rememberHarness } from "./harnessPicker";
+import { createHarnessPicker } from "./harnessPicker";
 import { featurePalette, featureActions, onFeatureChange } from "./features";
 import "./featureList";
 import type {
@@ -1669,105 +1678,6 @@ function targetSession(): SessionRow | undefined {
   return undefined;
 }
 
-/** Liveness-dot state classes set by applyStatusGlyph. `dot-running` carries
- *  the pulse; the rest are static colour. Removed wholesale before re-applying. */
-const STATUS_GLYPH_CLASSES = [
-  "dot-running",
-  "dot-finished",
-  "dot-idle",
-  "dot-stopped",
-  "dot-transient",
-  "dot-waiting",
-  "dot-hibernated",
-];
-
-/** Set `el`'s liveness dot (colour/pulse/tooltip) from a session's status.
- *  Shared by the sidebar rows and the terminal tabs so they stay in lockstep.
- *  The element renders as an 8px circle (see `.dot`/.glyph/.tab-glyph CSS); the
- *  state class drives its colour and the running pulse. */
-function applyStatusGlyph(el: HTMLSpanElement, s: SessionRow): void {
-  el.classList.remove(...STATUS_GLYPH_CLASSES);
-  el.textContent = "";
-  let cls: string;
-  let title: string;
-  if (s.unread) {
-    // Finished while away — surface as the "finished" colour regardless of the
-    // underlying agent state.
-    cls = "dot-finished";
-    title = "finished — needs attention";
-  } else if (s.status === "running") {
-    if (s.agent_state === "working") {
-      cls = "dot-running";
-      title = "running";
-    } else if (s.agent_state === "waitingforinput") {
-      // Distinct from the in-progress dot: a yellow "?" glyph, not a circle.
-      cls = "dot-waiting";
-      el.textContent = "?";
-      title = "waiting for input";
-    } else if (s.agent_state === "idle") {
-      cls = "dot-idle";
-      title = "idle";
-    } else {
-      cls = "dot-idle";
-      title = s.agent_state;
-    }
-  } else if (s.hibernated) {
-    // Auto-hibernated (status is "stopped"): a moon glyph distinct from a
-    // plainly-stopped session, since it can be woken to resume its agent.
-    cls = "dot-hibernated";
-    el.textContent = "☾";
-    title = "hibernated — wake to resume";
-  } else if (s.status === "stopped") {
-    cls = "dot-stopped";
-    title = "stopped";
-  } else {
-    cls = "dot-transient"; // creating / merging / pushing / cascade_paused
-    title = s.status;
-  }
-  el.classList.add(cls);
-  el.title = title;
-}
-
-function statusGlyph(s: SessionRow): HTMLSpanElement {
-  const el = document.createElement("span");
-  el.className = "glyph dot";
-  applyStatusGlyph(el, s);
-  return el;
-}
-
-/** Derive a session's liveness state key by reading applyStatusGlyph's own
- *  output (probe → `dot-running` → "running"), so the status chips, the board
- *  accent bar, and the terminal-tab dots all stay in lockstep with one mapping.
- *  Mirrors boardStateClass's probe. */
-function sessionStateKey(s: SessionRow): StatusState {
-  const probe = document.createElement("span");
-  applyStatusGlyph(probe, s);
-  for (const cls of STATUS_GLYPH_CLASSES) {
-    if (probe.classList.contains(cls)) return cls.slice(4) as StatusState; // dot-running → running
-  }
-  return "idle";
-}
-
-/** A session's activity tier for the Status grouping, via the shared state
- *  key so it stays in lockstep with the dots and chips. */
-function sessionTier(s: SessionRow): StatusTier {
-  return stateTier(sessionStateKey(s));
-}
-
-/** The chip word for a session's state. Transient states (creating/merging/
- *  pushing/…) carry the humanized status rather than a fixed word. */
-function sessionStateWord(s: SessionRow, key: StatusState): string {
-  return key === "transient"
-    ? s.status.charAt(0).toUpperCase() + s.status.slice(1).replace(/_/g, " ")
-    : stateChipInfo(key).word;
-}
-
-/** The shared shape+colour+word chip for a session's liveness state. */
-function sessionStatusChip(s: SessionRow): HTMLSpanElement {
-  const key = sessionStateKey(s);
-  return statusChip(key, { word: sessionStateWord(s, key) });
-}
-
 /** Number of project-identity palette slots (--proj-0..--proj-7 in :root). */
 const PROJ_COLORS = 8;
 
@@ -2278,13 +2188,6 @@ function updateRow(refs: RowRefs, s: SessionRow): void {
 
 /** Launch a new session in a project, remembering the chosen harness (if any)
  *  and refreshing once the backend responds. Shared by both create entry points. */
-function startSession(group: ProjectGroup, title: string, program: string | undefined): void {
-  if (program) rememberHarness(group.repo_path, program);
-  invoke("create_session", { projectPath: group.repo_path, title, program })
-    .catch((err) => toast(`create failed: ${err}`, "error"))
-    .finally(() => void refreshNow());
-}
-
 function renderCreateInput(group: ProjectGroup): HTMLDivElement {
   const wrap = document.createElement("div");
   wrap.className = "create-input";
@@ -2572,24 +2475,6 @@ function sidebarMenuItems(): MenuItem[] {
 /** Project list for the sidebar "New session…" picker. Sourced from `groups`,
  *  so it includes projects with no sessions — the one path to create a session
  *  for them in section views, where sessionless projects have no sub-header. */
-function projectPickerItems(): MenuItem[] {
-  if (!groups().length) {
-    return [{ label: "No projects — add one first", action: () => {} }];
-  }
-  return groups().map((g) => ({
-    label: g.name,
-    action: () => void createSessionInProject(g),
-  }));
-}
-
-async function createSessionInProject(group: ProjectGroup): Promise<void> {
-  const result = await createSessionDialog(`New session in ${group.name}`, group.repo_path);
-  if (!result) return;
-  startSession(group, result.title, result.program || undefined);
-}
-
-/** Persist the GUI-owned view mode and repaint. Section views fall back to
- *  "project" when no sections are configured (the backend used to reject them). */
 function applyViewMode(mode: string): void {
   if ((mode === "sections" || mode === "section_stacks") && sectionNames().length === 0) {
     mode = "project";
