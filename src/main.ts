@@ -1,13 +1,8 @@
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { openReview, closeReview } from "./review";
@@ -27,11 +22,10 @@ import {
   rebindActions,
 } from "./keys";
 import { openSettings } from "./settings";
-import { commentsChip, pullBlockedChip, stackChip, shellChip, stateChipInfo, STATUS_TIERS, type StatusTier } from "./status";
+import { commentsChip, pullBlockedChip, stackChip, stateChipInfo, STATUS_TIERS, type StatusTier } from "./status";
 import { noTextAssist } from "./dom";
 import { draggable } from "./drag";
 import {
-  applyStatusGlyph,
   sessionStateKey,
   sessionStateWord,
   sessionStatusChip,
@@ -40,10 +34,28 @@ import {
 } from "./session/glyph";
 import { createSessionInProject, projectPickerItems, startSession } from "./session/create";
 import {
+  activeTerm,
+  focusedSlot,
+  panes,
+  refitActive,
+  splitActive,
+  terminals,
+} from "./terminal/state";
+import {
+  closeTerminal,
+  dockActiveTerminal,
+  exitSplit,
+  setDockDetached,
+  undockTerminal,
+  updateDockHeader,
+} from "./terminal/surface";
+import { activateTabByIndex, cycleTab } from "./terminal/tabs";
+import { attachTerminal, openProjectShell, openShell, openTerminal } from "./terminal/attach";
+import "./terminal/restart";
+import {
   initTheme,
   setMode,
   currentTheme,
-  onThemeChange,
   followSystem,
   resolveTheme,
   applyTheme,
@@ -64,9 +76,6 @@ import type {
 } from "./app/types";
 import {
   sessionsEl,
-  tabsEl,
-  terminalsEl,
-  placeholderEl,
   detailEl,
   detailTitleEl,
   detailMetaEl,
@@ -90,10 +99,6 @@ import {
   boardFilterEl,
   boardColumnsEl,
   boardDockEl,
-  boardDockSurfaceEl,
-  boardDockPlaceholderEl,
-  boardDockNameEl,
-  boardDockBranchEl,
   boardDockBackdropEl,
 } from "./app/elements";
 import { registerView } from "./app/render";
@@ -131,11 +136,11 @@ void getCurrentWindow().onThemeChanged(() => followSystem());
 // Requires `dragDropEnabled: true` in tauri.conf.json.
 void getCurrentWebview().onDragDropEvent((event) => {
   if (event.payload.type !== "drop") return;
-  if (!activeTerm) {
+  const target = activeTerm();
+  if (!target) {
     toast("No active session to drop files into", "error");
     return;
   }
-  const target = activeTerm;
   const refs = event.payload.paths.map((p) => `@${p} `).join("");
   void invoke("write_pty", { tmuxSession: target, data: refs })
     .then(() => terminals.get(target)?.term.focus())
@@ -229,921 +234,6 @@ sessionsEl.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- terminals
 
-type TermEntry = {
-  term: Terminal;
-  fit: FitAddon;
-  container: HTMLDivElement;
-  surface: HTMLDivElement; // inner element xterm renders into
-  tab: HTMLDivElement;
-  glyph: HTMLSpanElement;
-  title: string;
-  dead: boolean;
-};
-
-const terminals = new Map<string, TermEntry>(); // keyed by tmux session name
-let activeTerm: string | null = null;
-
-// ------------------------------------------------------------- split panes
-// Console view can show up to 4 terminals at once, dragged into quadrant drop
-// zones. Layout is "columns-of-stacks": up to two columns, each an independent
-// stack of up to two rows (left = [TL, BL], right = [TR, BR]). Empty columns /
-// rows collapse. This avoids the unresolvable L-shapes a free 2×2 grid produces.
-// One PTY per tmux session (pty.rs) ⇒ a session lives in exactly one pane;
-// dropping onto an occupied slot REPLACES (the displaced session parks as a
-// hidden direct child of #terminals, still alive). Split is active when
-// `panes.size >= 2`; single-pane keeps the classic `activateTerminal` path.
-type Slot = "TL" | "TR" | "BL" | "BR";
-const panes = new Map<Slot, string>(); // slot -> tmux session name (split mode)
-let focusedSlot: Slot | null = null;
-
-// Per-quadrant accent colour: reused for the pane ring, the drop-zone preview,
-// and the matching tab top-border so it's obvious which tab is on screen where.
-const SLOT_COLOR: Record<Slot, string> = {
-  TL: "var(--accent)", // blue
-  TR: "var(--attention)", // peach/orange
-  BL: "var(--success)", // green
-  BR: "var(--info)", // mauve
-};
-
-// Split ratios (grow fractions), persisted; slot→session mapping is NOT.
-function loadRatio(key: string): number {
-  const v = Number(localStorage.getItem(key));
-  return v >= 0.15 && v <= 0.85 ? v : 0.5;
-}
-let colRatio = loadRatio("cc-split-col"); // left column width fraction
-let leftRowRatio = loadRatio("cc-split-rows-l"); // TL height within left column
-let rightRowRatio = loadRatio("cc-split-rows-r"); // TR height within right column
-
-const splitActive = (): boolean => panes.size >= 2;
-
-/** Toggle the "select a session" placeholder for the current terminal count,
- *  and refresh the onboarding hero alongside it — the hero also gates on
- *  whether a terminal is attached (not just on project count), so attaching
- *  one (e.g. via the hero's own commander CTA) yields the hero instead of
- *  leaving it rendered on top of the newly attached terminal. */
-function updatePlaceholder(): void {
-  placeholderEl.style.display = terminals.size ? "none" : "flex";
-  renderOnboarding();
-}
-
-// Re-theme every live terminal when the GUI theme changes. The DOM renderer
-// repaints automatically on an options.theme assignment.
-onThemeChange((theme) => {
-  for (const entry of terminals.values()) {
-    entry.term.options.theme = theme.terminal;
-  }
-});
-
-function activateTerminal(name: string): void {
-  // Split mode: focus the pane already showing this session, else load it into
-  // the focused pane (replacing whatever was there — the displaced session
-  // parks but stays alive as a tab).
-  if (splitActive()) {
-    const slot = [...panes].find(([, n]) => n === name)?.[0];
-    if (slot) focusPane(slot);
-    else setPane(focusedSlot ?? firstSlot(), name);
-    return;
-  }
-  activeTerm = name;
-  for (const [key, entry] of terminals) {
-    const active = key === name;
-    entry.container.classList.toggle("active", active);
-    entry.tab.classList.toggle("active", active);
-  }
-  updatePlaceholder();
-  const entry = terminals.get(name);
-  if (entry) {
-    // In board mode the terminal lives in the dock; dock+fit there (fitting in
-    // the hidden #terminals would measure a zero-size element). Otherwise fit
-    // in place.
-    if (layout() === "board") {
-      dockActiveTerminal();
-    } else {
-      entry.fit.fit();
-      void invoke("resize_pty", {
-        tmuxSession: name,
-        rows: entry.term.rows,
-        cols: entry.term.cols,
-      });
-      entry.term.focus();
-    }
-  } else if (layout() === "board") {
-    // The active terminal was just removed: refresh the dock to its placeholder.
-    updateDockHeader();
-  }
-  renderSidebar();
-}
-
-function closeTerminal(name: string): void {
-  const entry = terminals.get(name);
-  if (!entry) return;
-  void invoke("detach", { tmuxSession: name });
-  entry.term.dispose();
-  entry.container.remove(); // drops it from a pane cell or from #terminals
-  entry.tab.remove();
-  terminals.delete(name);
-
-  // Split bookkeeping: vacate the slot, then re-render or fall back to single.
-  const wasSplit = splitActive();
-  const slot = [...panes].find(([, n]) => n === name)?.[0];
-  if (slot) panes.delete(slot);
-  if (splitActive()) {
-    if (focusedSlot === slot) focusedSlot = firstSlot();
-    renderPanes();
-    updatePlaceholder();
-    renderSidebar();
-    return;
-  }
-  if (wasSplit) {
-    // Dropped below two panes: leave split, keeping the remaining session.
-    exitSplit([...panes.values()][0] ?? terminals.keys().next().value ?? null);
-    updatePlaceholder();
-    renderSidebar();
-    return;
-  }
-
-  if (activeTerm === name) {
-    activeTerm = terminals.keys().next().value ?? null;
-    if (activeTerm) activateTerminal(activeTerm);
-    else if (layout() === "board") updateDockHeader(); // no terminal left → dock placeholder
-  }
-  updatePlaceholder();
-  renderSidebar();
-}
-
-/** The tab to insert the dragged tab before, given the pointer's x (null = end). */
-function tabBeforeX(x: number): HTMLDivElement | null {
-  const tabs = [...tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging)")];
-  for (const tab of tabs) {
-    const box = tab.getBoundingClientRect();
-    if (x < box.left + box.width / 2) return tab;
-  }
-  return null;
-}
-
-/** Show the insertion marker before `target` (or after the last tab when null). */
-function showDropMarker(target: HTMLDivElement | null): void {
-  clearDropMarker();
-  if (target) {
-    target.classList.add("drop-before");
-  } else {
-    const tabs = tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging)");
-    tabs[tabs.length - 1]?.classList.add("drop-after");
-  }
-}
-
-function clearDropMarker(): void {
-  for (const t of tabsEl.querySelectorAll(".drop-before, .drop-after")) {
-    t.classList.remove("drop-before", "drop-after");
-  }
-}
-
-/** Rebuild the Map's iteration order from the current tab DOM order. */
-function syncTermOrderFromDom(): void {
-  const order = [...tabsEl.querySelectorAll<HTMLDivElement>(".tab")]
-    .map((t) => t.dataset.term)
-    .filter((n): n is string => !!n && terminals.has(n));
-  if (order.length !== terminals.size) return;
-  const entries = order.map((n) => [n, terminals.get(n)!] as const);
-  terminals.clear();
-  for (const [n, e] of entries) terminals.set(n, e);
-}
-
-// "+" new-terminal button — pinned to the end of the strip. It has no
-// `dataset.term`, so the drag-reorder helpers (tabBeforeX queries `.tab`,
-// syncTermOrderFromDom filters by dataset.term) ignore it; the drop handler
-// keeps it last by inserting dragged tabs before it.
-const tabNewBtn = document.createElement("button");
-tabNewBtn.className = "tab-new";
-tabNewBtn.textContent = "+";
-tabNewBtn.title = "New session";
-tabNewBtn.addEventListener("click", (e) => showContextMenu(e, projectPickerItems()));
-tabsEl.appendChild(tabNewBtn);
-
-async function openTerminal(session: SessionRow): Promise<void> {
-  // A deliberate attach resets the crash-loop guard for this session.
-  consecutiveEnds.delete(session.tmux_session_name);
-  // Recreates the tmux session first if the session is stopped or its pane
-  // died, matching the TUI's attach behaviour.
-  await attachTerminal(session.tmux_session_name, session.title, () =>
-    invoke("prepare_attach", { id: session.id }),
-  );
-}
-
-/** Open the per-worktree shell terminal for a session. */
-async function openShell(session: SessionRow): Promise<void> {
-  let name: string;
-  try {
-    name = await invoke<string>("prepare_shell", { id: session.id });
-  } catch (e) {
-    toast(`shell failed: ${e}`, "error");
-    return;
-  }
-  // The tab carries a "❯ Shell" chip (name ends "-sh"), so the title stays the
-  // bare session name — keeping entry.title consistent across the tab, the
-  // split-pane header, and the board dock (all read entry.title).
-  await attachTerminal(name, session.title, null);
-}
-
-async function openProjectShell(group: ProjectGroup): Promise<void> {
-  let name: string;
-  try {
-    name = await invoke<string>("prepare_project_shell", { id: group.id });
-  } catch (e) {
-    toast(`project shell failed: ${e}`, "error");
-    return;
-  }
-  await attachTerminal(name, group.name, null); // see openShell re: the bare title
-}
-
-/**
- * Attach (or focus) a terminal tab for a tmux session. `prepare` runs before
- * the PTY attach to ensure the tmux session exists (null when the caller
- * already ensured it).
- */
-async function attachTerminal(
-  name: string,
-  title: string,
-  prepare: (() => Promise<unknown>) | null,
-): Promise<void> {
-  const existing = terminals.get(name);
-  if (existing && !existing.dead) {
-    activateTerminal(name);
-    return;
-  }
-  if (existing) closeTerminal(name); // dead: rebuild from scratch
-
-  // The terminal is a rounded surface that xterm renders into directly; the
-  // FitAddon measures the whole container.
-  const container = document.createElement("div");
-  container.className = "term-container";
-
-  const surface = document.createElement("div");
-  surface.className = "term-surface";
-
-  container.append(surface);
-  terminalsEl.appendChild(container);
-
-  const term = new Terminal({
-    fontFamily: '"MesloLGS NF Embedded", "MesloLGS NF", Menlo, Monaco, monospace',
-    fontSize: 13,
-    cursorBlink: true,
-    theme: currentTheme().terminal,
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  // Cmd+Click opens links. xterm underlines URLs on hover; the handler only
-  // fires the platform opener when Cmd is held, so a plain click still places
-  // the cursor / starts a selection like a native terminal.
-  term.loadAddon(
-    new WebLinksAddon((e, uri) => {
-      if (e.metaKey) void invoke("open_external", { url: uri });
-    }),
-  );
-  // xterm measures glyph dimensions at open(), so the bundled font must be
-  // loaded first — otherwise it sizes cells against the fallback and icon
-  // glyphs never render. The boot-time preload usually wins this race, but
-  // await here to be certain before the first paint.
-  await Promise.all([
-    document.fonts.load('13px "MesloLGS NF Embedded"'),
-    document.fonts.load('bold 13px "MesloLGS NF Embedded"'),
-  ]).catch(() => {});
-  term.open(surface);
-
-  // Honor OSC 52: programs like Claude's TUI manage their own mouse selection
-  // and copy by emitting an OSC 52 clipboard sequence (this is what makes a
-  // plain drag-to-copy work inside Claude, no Cmd+C). xterm ignores OSC 52
-  // unless this addon is loaded; route it through the Tauri clipboard plugin
-  // so the write lands on the native pasteboard from the WKWebView.
-  term.loadAddon(
-    new ClipboardAddon(undefined, {
-      readText: () => readText(),
-      writeText: (_sel, text) => writeText(text),
-    }),
-  );
-
-  // Copy-on-select for plain shells (no app mouse mode): finishing a drag
-  // selection copies it to the clipboard and clears the highlight. In an app
-  // that grabs the mouse (Claude), xterm makes no selection and this no-ops —
-  // OSC 52 above handles that case instead.
-  //
-  // xterm sets the selection end only from mousemove; its own mouseup handler
-  // discards the release coordinates. On a fast release the final mousemove
-  // lags the pointer, so the selection (and thus the copy) stops a cell short.
-  // This bubble listener runs before xterm's document-level mouseup handler —
-  // where it detaches its drag listeners — so replaying the release point as a
-  // mousemove extends the selection to where the button actually came up.
-  surface.addEventListener("mouseup", (e) => {
-    document.dispatchEvent(
-      new MouseEvent("mousemove", {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        buttons: 1,
-        bubbles: true,
-      }),
-    );
-    const sel = term.getSelection();
-    if (!sel) return;
-    void writeText(sel).catch((e) =>
-      console.error("clipboard write failed", e),
-    );
-    term.clearSelection();
-  });
-
-  term.onData((data) => {
-    void invoke("write_pty", { tmuxSession: name, data });
-  });
-
-  // macOS line-editing shortcuts. Native terminals (Terminal.app, iTerm2) map
-  // these Cmd combos to readline control bytes; xterm.js passes Cmd through
-  // untouched, so we translate them ourselves. Bare Cmd only — combos with
-  // other modifiers (e.g. Cmd+W) must fall through to their own handlers.
-  term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== "keydown") return true;
-    // Ctrl+\ — switch to this session's shell, mirroring claude-commander's
-    // attach-mode shell toggle (it intercepts the same key while attached).
-    // Handled here so it fires while the terminal is focused, where the
-    // config-driven keybindings (including select_shell) are suppressed. A
-    // no-op on shell/project-shell terminals, whose name matches no session.
-    if (e.ctrlKey && e.key === "\\" && !e.metaKey && !e.altKey && !e.shiftKey) {
-      const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
-      if (s) {
-        e.preventDefault();
-        void openShell(s);
-        return false;
-      }
-    }
-    // Shift+Enter: insert a newline instead of submitting. xterm.js sends a
-    // plain CR (\r) for Enter regardless of Shift, which submits. Send LF (\n,
-    // i.e. Ctrl+J) instead — the TUI's "insert newline" byte; in a plain shell
-    // readline treats it the same as Enter, so it does no harm there.
-    if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      void invoke("write_pty", { tmuxSession: name, data: "\n" });
-      return false;
-    }
-    if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) {
-      return true;
-    }
-    const byte =
-      e.key === "Backspace" ? "\x15" : e.key === "ArrowLeft" ? "\x01" : e.key === "ArrowRight" ? "\x05" : null;
-    if (byte === null) return true;
-    e.preventDefault();
-    void invoke("write_pty", { tmuxSession: name, data: byte });
-    return false;
-  });
-  term.onResize(({ rows, cols }) => {
-    void invoke("resize_pty", { tmuxSession: name, rows, cols });
-  });
-
-  const tab = document.createElement("div");
-  tab.className = "tab";
-  tab.dataset.term = name;
-  // Drag a tab to reorder it within the strip, or onto #terminals to open it in
-  // a split pane. The move commits on release over a target; an Esc-cancelled
-  // drag leaves both the order and the split layout unchanged.
-  draggable(tab, () => {
-    tab.classList.add("dragging");
-    return {
-      onMove(x, y) {
-        const el = document.elementFromPoint(x, y);
-        if (el?.closest("#terminals")) {
-          clearDropMarker();
-          showSplitOverlay(quadrantAt(x, y));
-        } else if (el?.closest("#tabs")) {
-          hideSplitOverlay();
-          showDropMarker(tabBeforeX(x));
-        } else {
-          clearDropMarker();
-          hideSplitOverlay();
-        }
-      },
-      onDrop(x, y) {
-        const el = document.elementFromPoint(x, y);
-        if (el?.closest("#terminals")) {
-          assignPane(quadrantAt(x, y), name);
-        } else if (el?.closest("#tabs")) {
-          const before = tabBeforeX(x);
-          // Keep the trailing "+" button last: drop "at the end" means before it.
-          if (before) tabsEl.insertBefore(tab, before);
-          else tabsEl.insertBefore(tab, tabNewBtn);
-          syncTermOrderFromDom();
-        }
-      },
-      onEnd() {
-        tab.classList.remove("dragging");
-        clearDropMarker();
-        hideSplitOverlay();
-      },
-    };
-  });
-  const glyph = document.createElement("span");
-  glyph.className = "tab-glyph dot";
-  glyph.hidden = true; // shown once a matching session status is known
-  const label = document.createElement("span");
-  label.className = "tab-label";
-  label.textContent = title;
-  // Shell tabs (tmux name ends "-sh") carry no session status, so the liveness
-  // dot stays hidden; mark them with the shared "❯ Shell" chip instead (the
-  // title is already the bare name — see openShell).
-  const isShell = name.endsWith("-sh");
-  const close = document.createElement("button");
-  close.className = "tab-close";
-  close.textContent = "×";
-  close.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeTerminal(name);
-  });
-  if (isShell) {
-    const shell = shellChip("Shell terminal");
-    shell.classList.add("tab-shell");
-    tab.append(shell, label, close);
-  } else {
-    tab.append(glyph, label, close);
-  }
-  tab.addEventListener("click", () => activateTerminal(name));
-  tabsEl.insertBefore(tab, tabNewBtn); // keep the "+" button trailing
-
-  const entry: TermEntry = {
-    term,
-    fit,
-    container,
-    surface,
-    tab,
-    glyph,
-    title,
-    dead: false,
-  };
-  terminals.set(name, entry);
-  updateTabGlyphs();
-
-  const onData = new Channel<number[]>();
-  onData.onmessage = (chunk) => term.write(new Uint8Array(chunk));
-
-  try {
-    if (prepare) await prepare();
-    await invoke("attach", { tmuxSession: name, onData });
-  } catch (e) {
-    term.write(`\r\nFailed to attach: ${e}\r\n`);
-    entry.dead = true;
-  }
-  activateTerminal(name);
-}
-
-function refitActive(): void {
-  if (!activeTerm) return;
-  const entry = terminals.get(activeTerm);
-  if (!entry) return;
-  entry.fit.fit();
-  void invoke("resize_pty", {
-    tmuxSession: activeTerm,
-    rows: entry.term.rows,
-    cols: entry.term.cols,
-  });
-}
-
-// ---------------------------------------------------------------- board dock
-// In board mode the active session's terminal lives in the dock at the bottom
-// of #board: we MOVE the existing `.term-container` node out of #terminals into
-// #board-dock-surface (one PTY — no duplicate). The container is absolutely
-// positioned (inset:4px), so it fills whichever positioned parent holds it;
-// after any re-parent it must be re-fit once its new parent is laid out. When
-// switching back to Console the container returns to #terminals.
-
-// The user can "×" close the dock without killing the PTY: the terminal goes
-// back to #terminals and the whole dock panel collapses out of the board so the
-// columns fill the space. The PTY stays attached. Cleared by attaching from a
-// card or re-entering board mode.
-let dockDetached = false;
-
-/** Fill the dock header (session name + branch) from the active terminal's
- *  snapshot row, toggle the placeholder vs. the docked terminal, and collapse
- *  the whole dock panel when the user has closed it with "×". */
-function updateDockHeader(): void {
-  boardDockEl.classList.toggle("dock-closed", dockDetached);
-  const entry = activeTerm && !dockDetached ? terminals.get(activeTerm) : null;
-  if (!entry) {
-    boardDockNameEl.textContent = "";
-    boardDockBranchEl.textContent = "";
-    boardDockPlaceholderEl.style.display = "flex";
-    return;
-  }
-  const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === activeTerm);
-  boardDockNameEl.textContent = s ? s.title : entry.title;
-  boardDockBranchEl.textContent = s ? s.branch : "";
-  boardDockPlaceholderEl.style.display = "none";
-}
-
-/** Move the active terminal's container into the dock surface and re-fit. With
- *  no active terminal (or after an explicit detach) the dock shows its
- *  placeholder. Safe to call repeatedly (re-parenting a node into its current
- *  parent is a no-op move). */
-function dockActiveTerminal(): void {
-  updateDockHeader();
-  if (!activeTerm || dockDetached) return;
-  const entry = terminals.get(activeTerm);
-  if (!entry) return;
-  boardDockSurfaceEl.appendChild(entry.container);
-  // Mirror activateTerminal: only the active container is shown, and fit must
-  // run after the move so it measures the dock surface, not #terminals.
-  entry.container.classList.add("active");
-  entry.fit.fit();
-  void invoke("resize_pty", {
-    tmuxSession: activeTerm,
-    rows: entry.term.rows,
-    cols: entry.term.cols,
-  });
-  entry.term.focus();
-}
-
-/** Restore the active terminal's container to #terminals (Console layout) and
- *  re-fit it there. */
-function undockTerminal(): void {
-  if (!activeTerm) return;
-  const entry = terminals.get(activeTerm);
-  if (!entry) return;
-  terminalsEl.appendChild(entry.container);
-  refitActive();
-}
-
-// ------------------------------------------------------------- split render
-// Split lives only in console layout: it re-parents the same `.term-container`
-// nodes (one PTY each) into pane cells, exactly like the board dock does. A
-// ResizeObserver on each cell re-fits its terminal on any size change (window,
-// divider, panel). Entering board collapses the split (see setLayout).
-
-/** First occupied slot in TL,TR,BL,BR order (fallback focus target). */
-function firstSlot(): Slot {
-  return (["TL", "TR", "BL", "BR"] as Slot[]).find((s) => panes.has(s)) ?? "TL";
-}
-
-// Re-fit a terminal to its current container, batched to one rAF per frame.
-const pendingFits = new Set<string>();
-let fitScheduled = false;
-function fitTerminal(name: string): void {
-  const entry = terminals.get(name);
-  if (!entry) return;
-  entry.fit.fit();
-  void invoke("resize_pty", { tmuxSession: name, rows: entry.term.rows, cols: entry.term.cols });
-}
-function scheduleFit(name: string): void {
-  pendingFits.add(name);
-  if (fitScheduled) return;
-  fitScheduled = true;
-  requestAnimationFrame(() => {
-    fitScheduled = false;
-    for (const n of pendingFits) fitTerminal(n);
-    pendingFits.clear();
-  });
-}
-const paneResizeObserver = new ResizeObserver((entries) => {
-  for (const e of entries) {
-    const name = (e.target as HTMLElement).dataset.term;
-    if (name) scheduleFit(name);
-  }
-});
-
-// Drop-zone preview overlay: four themed quadrants shown while a tab is dragged
-// over #terminals. pointer-events:none so it never intercepts the drag.
-const splitOverlay = document.createElement("div");
-splitOverlay.id = "split-overlay";
-const dzEls = {} as Record<Slot, HTMLDivElement>;
-for (const s of ["TL", "TR", "BL", "BR"] as Slot[]) {
-  const dz = document.createElement("div");
-  dz.className = `dz ${s.toLowerCase()}`;
-  dz.style.setProperty("--dz-color", SLOT_COLOR[s]);
-  dzEls[s] = dz;
-  splitOverlay.appendChild(dz);
-}
-terminalsEl.appendChild(splitOverlay);
-
-/** Quadrant of #terminals under a viewport point. */
-function quadrantAt(x: number, y: number): Slot {
-  const r = terminalsEl.getBoundingClientRect();
-  const left = x < r.left + r.width / 2;
-  const top = y < r.top + r.height / 2;
-  return top ? (left ? "TL" : "TR") : left ? "BL" : "BR";
-}
-function showSplitOverlay(slot: Slot): void {
-  splitOverlay.classList.add("show");
-  for (const s of Object.keys(dzEls) as Slot[]) dzEls[s].classList.toggle("hot", s === slot);
-}
-function hideSplitOverlay(): void {
-  splitOverlay.classList.remove("show");
-  for (const dz of Object.values(dzEls)) dz.classList.remove("hot");
-}
-
-/** Assign a dragged session to a quadrant. From single-pane this seeds a
- *  two-pane vertical split (the on-screen session takes the opposite column),
- *  so any first drop yields left|right — the documented default. Dragging one
- *  visible pane onto another swaps the two (neither is evicted); dragging a
- *  parked tab onto an occupied slot replaces it (the occupant parks, stays alive). */
-function assignPane(slot: Slot, name: string): void {
-  if (!terminals.has(name)) return;
-  const wasSplit = splitActive();
-  const srcSlot = [...panes].find(([, n]) => n === name)?.[0];
-  if (srcSlot === slot) return; // dropped onto its own pane: no-op
-
-  // Swap: both the dragged session and the target slot are already visible
-  // panes, so trade their positions instead of collapsing/evicting.
-  const occupant = panes.get(slot);
-  if (wasSplit && srcSlot && occupant && occupant !== name) {
-    panes.set(srcSlot, occupant);
-    panes.set(slot, name);
-    focusedSlot = slot;
-    renderPanes();
-    return;
-  }
-
-  if (srcSlot) panes.delete(srcSlot);
-  if (!wasSplit) {
-    const seed = activeTerm;
-    if (seed && seed !== name) {
-      const opposite: Record<Slot, Slot> = { TL: "TR", TR: "TL", BL: "BR", BR: "BL" };
-      panes.set(opposite[slot], seed);
-    }
-  }
-  panes.set(slot, name);
-  if (!splitActive()) {
-    // Couldn't form a split (e.g. only one session, dropped onto itself).
-    panes.clear();
-    activateTerminal(name);
-    return;
-  }
-  focusedSlot = slot;
-  renderPanes();
-}
-
-/** Load a session into a specific slot (used when clicking a parked tab in
- *  split mode); replaces the slot's current occupant, which parks but lives. */
-function setPane(slot: Slot, name: string): void {
-  if (!terminals.has(name)) return;
-  for (const [s, n] of [...panes]) if (n === name && s !== slot) panes.delete(s);
-  panes.set(slot, name);
-  if (!splitActive()) {
-    exitSplit(name);
-    return;
-  }
-  focusedSlot = slot;
-  renderPanes();
-}
-
-/** Remove a slot from the split (via its pane's × ); the session stays alive
- *  and returns to the tab bar. Collapses to single when fewer than two remain. */
-function removePane(slot: Slot): void {
-  panes.delete(slot);
-  if (focusedSlot === slot) focusedSlot = firstSlot();
-  if (splitActive()) renderPanes();
-  else exitSplit([...panes.values()][0] ?? activeTerm);
-}
-
-/** Focus a pane: sync activeTerm (for Cmd+W / targetSession / dock), move the
- *  focus ring, and focus its xterm. */
-function focusPane(slot: Slot): void {
-  focusedSlot = slot;
-  const name = panes.get(slot);
-  if (name) activeTerm = name;
-  for (const cell of terminalsEl.querySelectorAll<HTMLElement>(".pane")) {
-    cell.classList.toggle("focused", cell.dataset.slot === slot);
-  }
-  if (name) terminals.get(name)?.term.focus();
-  renderSidebar();
-}
-
-/** Tag each on-screen tab with its quadrant colour (top border). */
-function updateTabPaneColors(): void {
-  clearTabPaneColors();
-  for (const [slot, name] of panes) {
-    const entry = terminals.get(name);
-    if (!entry) continue;
-    entry.tab.classList.add("in-pane");
-    entry.tab.style.setProperty("--pane-color", SLOT_COLOR[slot]);
-  }
-}
-function clearTabPaneColors(): void {
-  for (const entry of terminals.values()) {
-    entry.tab.classList.remove("in-pane");
-    entry.tab.style.removeProperty("--pane-color");
-  }
-}
-
-function buildPane(slot: Slot, grow: number): HTMLDivElement {
-  const pane = document.createElement("div");
-  pane.className = "pane";
-  pane.dataset.slot = slot;
-  pane.style.flex = `${grow} 1 0`;
-  pane.style.setProperty("--pane-color", SLOT_COLOR[slot]);
-  const name = panes.get(slot)!;
-  pane.dataset.term = name;
-  const entry = terminals.get(name);
-
-  const header = document.createElement("div");
-  header.className = "pane-header";
-  const title = document.createElement("span");
-  title.className = "pane-title";
-  title.textContent = entry?.title ?? name;
-  const close = document.createElement("button");
-  close.className = "pane-close";
-  close.textContent = "×";
-  close.title = "Remove from split";
-  close.addEventListener("click", (e) => {
-    e.stopPropagation();
-    removePane(slot);
-  });
-  header.append(title, close);
-  pane.append(header);
-  if (entry) pane.appendChild(entry.container); // move the container into the cell
-  pane.addEventListener("mousedown", () => focusPane(slot));
-  paneResizeObserver.observe(pane);
-  return pane;
-}
-
-function makeColDivider(): HTMLDivElement {
-  const d = document.createElement("div");
-  d.className = "col-divider";
-  d.addEventListener("pointerdown", (e) => startDividerDrag(e, d, "col", null));
-  return d;
-}
-function makeRowDivider(which: "l" | "r", colEl: HTMLElement): HTMLDivElement {
-  const d = document.createElement("div");
-  d.className = "row-divider";
-  d.addEventListener("pointerdown", (e) => startDividerDrag(e, d, "row", { which, colEl }));
-  return d;
-}
-const clampRatio = (r: number): number => Math.min(0.85, Math.max(0.15, r));
-// flex-basis 0 so the grow fraction maps linearly to pixel width/height (with
-// basis:auto the panes' intrinsic size skews the ratio and makes the drag feel
-// non-linear / reversed).
-function applyColRatio(): void {
-  const cols = terminalsEl.querySelectorAll<HTMLElement>(".split-col");
-  if (cols.length === 2) {
-    cols[0].style.flex = `${colRatio} 1 0`;
-    cols[1].style.flex = `${1 - colRatio} 1 0`;
-  }
-}
-function applyRowRatio(colEl: HTMLElement, ratio: number): void {
-  const rows = colEl.querySelectorAll<HTMLElement>(".pane");
-  if (rows.length === 2) {
-    rows[0].style.flex = `${ratio} 1 0`;
-    rows[1].style.flex = `${1 - ratio} 1 0`;
-  }
-}
-// Pointer capture routes every move/up to the divider even when the pointer
-// crosses an xterm surface (whose own mouse handling would otherwise swallow the
-// mouseup and strand the drag — then a stale listener keeps following the cursor).
-function startDividerDrag(
-  e: PointerEvent,
-  handle: HTMLElement,
-  axis: "col" | "row",
-  row: { which: "l" | "r"; colEl: HTMLElement } | null,
-): void {
-  e.preventDefault();
-  handle.setPointerCapture(e.pointerId);
-  document.body.classList.add("resizing");
-  if (axis === "row") document.body.classList.add("vertical");
-  const onMove = (ev: PointerEvent) => {
-    if (axis === "col") {
-      const r = terminalsEl.getBoundingClientRect();
-      if (!r.width) return;
-      colRatio = clampRatio((ev.clientX - r.left) / r.width);
-      applyColRatio();
-      localStorage.setItem("cc-split-col", String(colRatio));
-    } else if (row) {
-      const r = row.colEl.getBoundingClientRect();
-      if (!r.height) return;
-      const ratio = clampRatio((ev.clientY - r.top) / r.height);
-      if (row.which === "l") {
-        leftRowRatio = ratio;
-        localStorage.setItem("cc-split-rows-l", String(ratio));
-      } else {
-        rightRowRatio = ratio;
-        localStorage.setItem("cc-split-rows-r", String(ratio));
-      }
-      applyRowRatio(row.colEl, ratio);
-    }
-  };
-  const onUp = (ev: PointerEvent) => {
-    document.body.classList.remove("resizing", "vertical");
-    handle.releasePointerCapture(ev.pointerId);
-    handle.removeEventListener("pointermove", onMove);
-    handle.removeEventListener("pointerup", onUp);
-    handle.removeEventListener("pointercancel", onUp);
-  };
-  handle.addEventListener("pointermove", onMove);
-  handle.addEventListener("pointerup", onUp);
-  handle.addEventListener("pointercancel", onUp);
-}
-
-/** Rebuild the split scaffolding from the `panes` map (console layout only). */
-function renderPanes(): void {
-  if (!splitActive()) {
-    exitSplit(activeTerm);
-    return;
-  }
-  if (!focusedSlot || !panes.has(focusedSlot)) focusedSlot = firstSlot();
-  if (layout() !== "console") {
-    updateTabPaneColors(); // split DOM only exists in console; rebuild on return
-    return;
-  }
-  paneResizeObserver.disconnect();
-  // Park every container as a hidden direct child, then drop the old cells.
-  for (const entry of terminals.values()) {
-    entry.container.classList.remove("active");
-    terminalsEl.appendChild(entry.container);
-  }
-  for (const el of terminalsEl.querySelectorAll(".split-col, .col-divider")) el.remove();
-
-  terminalsEl.classList.add("split");
-  updatePlaceholder();
-
-  const leftSlots = (["TL", "BL"] as Slot[]).filter((s) => panes.has(s));
-  const rightSlots = (["TR", "BR"] as Slot[]).filter((s) => panes.has(s));
-  const bothCols = leftSlots.length > 0 && rightSlots.length > 0;
-  const columns: { slots: Slot[]; grow: number; which: "l" | "r"; ratio: number }[] = [];
-  if (leftSlots.length)
-    columns.push({ slots: leftSlots, grow: bothCols ? colRatio : 1, which: "l", ratio: leftRowRatio });
-  if (rightSlots.length)
-    columns.push({ slots: rightSlots, grow: bothCols ? 1 - colRatio : 1, which: "r", ratio: rightRowRatio });
-
-  columns.forEach((col, ci) => {
-    if (ci > 0) terminalsEl.insertBefore(makeColDivider(), splitOverlay);
-    const colEl = document.createElement("div");
-    colEl.className = "split-col";
-    colEl.style.flex = `${col.grow} 1 0`;
-    col.slots.forEach((slot, ri) => {
-      if (ri > 0) colEl.appendChild(makeRowDivider(col.which, colEl));
-      const grow = col.slots.length === 2 ? (ri === 0 ? col.ratio : 1 - col.ratio) : 1;
-      colEl.appendChild(buildPane(slot, grow));
-    });
-    terminalsEl.insertBefore(colEl, splitOverlay); // keep the overlay last (on top)
-  });
-
-  updateTabPaneColors();
-  focusPane(focusedSlot);
-  for (const name of panes.values()) scheduleFit(name);
-}
-
-/** Leave split mode, keeping `keep` (if valid) as the single active terminal. */
-function exitSplit(keep: string | null): void {
-  const target = keep && terminals.has(keep) ? keep : (terminals.keys().next().value ?? null);
-  panes.clear();
-  focusedSlot = null;
-  clearTabPaneColors();
-  paneResizeObserver.disconnect();
-  hideSplitOverlay();
-  // Move every container back to a hidden direct child of #terminals, tear down
-  // the split scaffolding, then re-show the kept terminal via the single path.
-  for (const entry of terminals.values()) {
-    entry.container.classList.remove("active");
-    terminalsEl.appendChild(entry.container);
-  }
-  for (const el of terminalsEl.querySelectorAll(".split-col, .col-divider")) el.remove();
-  terminalsEl.classList.remove("split");
-  activeTerm = null; // force activateTerminal to re-show the kept terminal
-  if (target) activateTerminal(target);
-  else {
-    updatePlaceholder();
-    if (layout() === "board") updateDockHeader();
-  }
-}
-
-window.addEventListener("resize", () => {
-  refitActive();
-});
-
-// Cmd+W closes the active terminal tab first; only when no tabs remain does it
-// close the window (the OS default). Capture phase so it beats xterm's own key
-// handling on the focused terminal. Cmd, not Ctrl: Ctrl+W is the terminal's
-// delete-word and must reach the shell.
-window.addEventListener(
-  "keydown",
-  (e) => {
-    if (e.key !== "w" || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (activeTerm) {
-      closeTerminal(activeTerm);
-    } else {
-      void getCurrentWindow().close();
-    }
-  },
-  true,
-);
-
-/** Activate the open terminal tab at `index` (0-based), if it exists. */
-function activateTabByIndex(index: number): void {
-  const name = [...terminals.keys()][index];
-  if (name) activateTerminal(name);
-}
-
-/** Cycle the active terminal tab by `delta` (wraps around). */
-function cycleTab(delta: number): void {
-  const names = [...terminals.keys()];
-  if (!names.length) return;
-  const cur = activeTerm ? names.indexOf(activeTerm) : -1;
-  activateTerminal(names[(cur + delta + names.length) % names.length]);
-}
-
 /** Move the sidebar cursor by `delta` and attach the newly selected session. */
 function cycleSession(delta: number): void {
   // Seed the cursor from the active terminal so the first press moves relative
@@ -1190,7 +280,7 @@ window.addEventListener(
 
 /** Open the file explorer rooted at the active session's repo. */
 function openFileExplorer(): void {
-  const name = activeTerm;
+  const name = activeTerm();
   const s = name
     ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
     : undefined;
@@ -1209,7 +299,7 @@ function openFileExplorer(): void {
 // Cmd+M toggles the markdown viewer over the active session's repo, same
 // capture-phase accel pattern as Cmd+E below.
 function openMarkdownViewerForActiveSession(): void {
-  const name = activeTerm;
+  const name = activeTerm();
   const s = name
     ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
     : undefined;
@@ -1251,7 +341,8 @@ window.addEventListener(
     e.stopPropagation();
     if (isExplorerOpen()) {
       closeExplorer();
-      if (activeTerm) terminals.get(activeTerm)?.term.focus();
+      const name = activeTerm();
+      if (name) terminals.get(name)?.term.focus();
     } else {
       openFileExplorer();
     }
@@ -1486,68 +577,6 @@ detailPrEl.addEventListener("click", () => {
   if (detailPrUrl) void invoke("open_external", { url: detailPrUrl });
 });
 
-/**
- * Crash-loop guard, cap 3 *consecutive* ends per tmux name. "Consecutive"
- * means in quick succession: an end more than a minute after the previous one
- * starts a fresh count, so a session that ran healthily for a while regains
- * its auto-restart budget (the TUI gets this for free by scoping its counter
- * to one attach loop).
- */
-const consecutiveEnds = new Map<string, { count: number; lastEnd: number }>();
-
-function recordEndAndCheckRestart(name: string): boolean {
-  if (name.endsWith("-sh") || name === "cc-commander") return false;
-  const prev = consecutiveEnds.get(name);
-  const now = Date.now();
-  const count = prev && now - prev.lastEnd < 60_000 ? prev.count + 1 : 1;
-  consecutiveEnds.set(name, { count, lastEnd: now });
-  return count <= 3;
-}
-
-/**
- * Auto-restart a crashed session by reconnecting the PTY on the SAME terminal,
- * without tearing it down. This preserves the terminal's placement (its pane in
- * split mode, or parked/active in single mode) and the user's focus. A
- * user-initiated attach deliberately loads into the focused pane; an autonomous
- * restart must not — otherwise a background tab finishing would hijack the pane
- * you're working in, or a crashed pane would reappear in the wrong quadrant.
- */
-async function restartTerminalInPlace(name: string): Promise<void> {
-  const entry = terminals.get(name);
-  if (!entry) return;
-  try {
-    await invoke("restart_fresh", { tmuxSession: name });
-    const onData = new Channel<number[]>();
-    onData.onmessage = (chunk) => entry.term.write(new Uint8Array(chunk));
-    await invoke("attach", { tmuxSession: name, onData });
-    entry.dead = false;
-    entry.tab.classList.remove("dead");
-    // Refit wherever it currently lives; parked terminals need no refit.
-    if (splitActive() && [...panes.values()].includes(name)) scheduleFit(name);
-    else if (activeTerm === name) refitActive();
-  } catch (e) {
-    entry.term.write(`\r\nAuto-restart failed: ${e}\r\n`);
-  }
-}
-
-void listen<{ session: string; ended: boolean }>("pty-exit", (event) => {
-  const { session: name, ended } = event.payload;
-  const entry = terminals.get(name);
-  if (!entry) return;
-  entry.dead = true;
-  entry.tab.classList.add("dead");
-
-  // The tmux session ended (program exited/crashed) rather than a detach:
-  // auto-restart fresh and re-attach in place, with the crash-loop guard — the
-  // same behaviour as the TUI's attach loop.
-  if (ended && recordEndAndCheckRestart(name)) {
-    entry.term.write("\r\n\x1b[90m[session ended — restarting…]\x1b[0m\r\n");
-    void restartTerminalInPlace(name);
-    return;
-  }
-  entry.term.write("\r\n\x1b[90m[detached — click session to re-attach]\x1b[0m\r\n");
-});
-
 // ----------------------------------------------------------------- sidebar
 
 // Key of the project header with an open create-input. In project view this is
@@ -1669,9 +698,9 @@ function targetSession(): SessionRow | undefined {
     const s = findSession(selectedId);
     if (s) return s;
   }
-  if (activeTerm) {
+  if (activeTerm()) {
     for (const g of groups()) {
-      const s = g.sessions.find((x) => x.tmux_session_name === activeTerm);
+      const s = g.sessions.find((x) => x.tmux_session_name === activeTerm());
       if (s) return s;
     }
   }
@@ -1700,20 +729,6 @@ function projClass(projectId: string): string {
 
 /** Mirror each open tab's status glyph from the latest session snapshot. Tabs
  *  with no matching session (e.g. commander) keep their glyph hidden. */
-function updateTabGlyphs(): void {
-  for (const [name, entry] of terminals) {
-    const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
-    if (s) {
-      entry.glyph.hidden = false;
-      applyStatusGlyph(entry.glyph, s);
-    } else {
-      entry.glyph.hidden = true;
-    }
-  }
-}
-
-registerView("tabs", updateTabGlyphs);
-
 function actionButton(
   label: string,
   title: string,
@@ -2177,7 +1192,7 @@ function updateRow(refs: RowRefs, s: SessionRow): void {
     refs.status = s.status;
   }
   fillRowMain(refs.main, s, refs.actions);
-  refs.row.classList.toggle("active", s.tmux_session_name === activeTerm);
+  refs.row.classList.toggle("active", s.tmux_session_name === activeTerm());
   refs.row.classList.toggle("attached", terminals.has(s.tmux_session_name));
   const sel = s.id === selectedId;
   refs.row.classList.toggle("selected", sel);
@@ -3009,7 +2024,8 @@ function setLayout(next: "console" | "board"): void {
   if (next === layout()) return;
   // Split lives only in console. Collapse it (keeping the focused pane) while
   // the DOM is still in console layout, before switching surfaces.
-  if (splitActive()) exitSplit(focusedSlot ? panes.get(focusedSlot)! : activeTerm);
+  const slot = focusedSlot();
+  if (splitActive()) exitSplit(slot ? panes.get(slot)! : activeTerm());
   setLayoutPref(next);
   closeReview();
   appEl.classList.toggle("board-mode", next === "board");
@@ -3019,7 +2035,7 @@ function setLayout(next: "console" | "board"): void {
   // Re-parent the active terminal into/out of the dock now that the target
   // surface is visible, then fit it (dock/undock fit internally).
   if (next === "board") {
-    dockDetached = false; // a fresh board entry re-docks the active terminal
+    setDockDetached(false); // a fresh board entry re-docks the active terminal
     dockActiveTerminal();
   } else {
     setDockFullscreen(false);
@@ -3059,7 +2075,7 @@ if (layout() === "board") dockActiveTerminal();
 document.querySelector<HTMLButtonElement>("#board-dock-close")!.addEventListener("click", () => {
   setDockFullscreen(false);
   undockTerminal();
-  dockDetached = true;
+  setDockDetached(true);
   updateDockHeader();
 });
 // Dock "⤢": float the docked terminal into a centred ~85% overlay over a dimmed
@@ -3396,7 +2412,7 @@ function renderAgentCard(s: SessionRow): HTMLDivElement {
   // prior "×" detach, and open the terminal (which docks in board mode).
   const attachCard = (): void => {
     selectRow(s.id);
-    dockDetached = false; // an explicit attach re-docks even after a "×" detach
+    setDockDetached(false); // an explicit attach re-docks even after a "×" detach
     void openTerminal(s);
   };
   const attach = document.createElement("button");
