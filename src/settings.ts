@@ -1,9 +1,10 @@
 // Settings modal: a categorized, typed editor behind a single searchable nav.
 //
 // One nav lists every category: the claude-commander Config ones (round-tripped
-// through `save_config`) plus Appearance (GUI-only theming, which applies live
-// to localStorage and never touches `save_config`). The search box filters
-// categories by their label and their fields' labels/descriptions.
+// through `save_config`) plus the GUI-only ones — Appearance (theming) and
+// Features (optional-feature switches) — which apply live to localStorage and
+// never touch `save_config`. The search box filters categories by their label
+// and their fields' labels/descriptions.
 //
 // Config categories are schema-driven: each field declares a control (toggle,
 // number, select, string-list, …) and a dot-path into the config. On save we
@@ -15,6 +16,7 @@ import { toast, confirmDialog } from "./toast";
 import { noTextAssist } from "./dom";
 import { getMode, setMode, type Mode } from "./theme";
 import { openThemeModal } from "./themeModal";
+import { allFeatures, isEnabled, setEnabled } from "./features";
 
 type Config = Record<string, unknown>;
 
@@ -45,7 +47,8 @@ type Field = {
 type Category =
   | { id: string; label: string; fields: Field[]; note?: string }
   | { id: string; label: string; custom: "sections"; note?: string }
-  | { id: string; label: string; custom: "theme"; note?: string };
+  | { id: string; label: string; custom: "theme"; note?: string }
+  | { id: string; label: string; custom: "features"; note?: string };
 
 const COMMANDER_CATEGORIES: Category[] = [
   {
@@ -190,11 +193,19 @@ const THEME_CATEGORY: Category = {
   note: "Theme preferences are stored locally for this GUI and don't affect the claude-commander config.",
 };
 
+const FEATURES_CATEGORY: Category = {
+  id: "features",
+  label: "Features",
+  custom: "features",
+  note: "Optional parts of this GUI you can switch off. Like theme preferences, these are stored locally and don't affect the claude-commander config. Changes apply immediately.",
+};
+
 // One nav for everything: Appearance sits with the config categories, right
 // after General (it's the GUI-local odd one out; its note says so).
 const CATEGORIES: Category[] = [
   COMMANDER_CATEGORIES[0],
   THEME_CATEGORY,
+  FEATURES_CATEGORY,
   ...COMMANDER_CATEGORIES.slice(1),
 ];
 
@@ -657,6 +668,7 @@ function renderPanel(): void {
 
   if ("custom" in cat) {
     if (cat.custom === "sections") renderSections(panel);
+    else if (cat.custom === "features") renderFeatures(panel);
     else renderTheme(panel);
     restore();
     return;
@@ -686,6 +698,51 @@ function renderPanel(): void {
     panel.appendChild(row);
   }
   restore();
+}
+
+// -------------------------------------------------------------- features tab
+
+/** One switch per registered optional feature. Writes straight through to the
+ *  registry (localStorage) rather than the config draft, so these rows are
+ *  outside the Save/Cancel flow — same as the appearance controls. */
+function renderFeatures(panel: HTMLElement): void {
+  const features = allFeatures();
+  if (features.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "settings-note";
+    empty.textContent = "No optional features are available in this build.";
+    panel.appendChild(empty);
+    return;
+  }
+
+  for (const f of features) {
+    const row = document.createElement("div");
+    row.className = "settings-field";
+    const head = document.createElement("div");
+    head.className = "settings-field-head";
+    const label = document.createElement("label");
+    label.className = "settings-field-label";
+    label.htmlFor = fieldId(`feature.${f.id}`);
+    label.textContent = f.name;
+    const desc = document.createElement("div");
+    desc.className = "settings-field-desc";
+    desc.textContent = f.desc;
+    head.append(label, desc);
+
+    const wrap = document.createElement("label");
+    wrap.className = "switch";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.id = fieldId(`feature.${f.id}`);
+    input.checked = isEnabled(f.id);
+    input.addEventListener("change", () => setEnabled(f.id, input.checked));
+    const slider = document.createElement("span");
+    slider.className = "slider";
+    wrap.append(input, slider);
+
+    row.append(head, wrap);
+    panel.appendChild(row);
+  }
 }
 
 // ----------------------------------------------------------------- theme tab

@@ -128,6 +128,22 @@ test("the Appearance category switches theme mode (localStorage, not save_config
   expect(await settings.savedConfig()).toBeNull();
 });
 
+test("the Features category lists optional features, or says there are none", async ({
+  settings,
+}) => {
+  await settings.open();
+  await settings.selectCategory("features");
+
+  await expect(settings.panelHeading()).toHaveText("Features");
+  // No optional feature is registered yet, so the panel is its empty state.
+  // When the first one lands this becomes a switch assertion.
+  expect(await settings.panelNotes()).toContain(
+    "No optional features are available in this build.",
+  );
+  // Feature switches are GUI-local, like theme prefs.
+  expect(await settings.savedConfig()).toBeNull();
+});
+
 test("search filters the nav to matching categories", async ({ settings }) => {
   await settings.open();
   await settings.search("hibern");
@@ -167,4 +183,5 @@ test("clearing the search restores every category", async ({ settings }) => {
   // right after it — no tabs.
   expect(labels[0]).toBe("General");
   expect(labels[1]).toBe("Appearance");
+  expect(labels[2]).toBe("Features");
 });

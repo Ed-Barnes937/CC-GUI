@@ -152,8 +152,15 @@ async function loadTable(): Promise<boolean> {
     return false; // no keybinds; everything stays mouse-reachable
   }
   loadedBindings = raw;
+  buildTable();
+  return true;
+}
+
+/** Rebuild the dispatch table by pairing the loaded bindings with the currently
+ *  bound actions. Bindings whose action isn't bound are simply left out. */
+function buildTable(): void {
   table.length = 0;
-  for (const [action, keys] of Object.entries(raw)) {
+  for (const [action, keys] of Object.entries(loadedBindings)) {
     const handler = boundActions[action];
     if (!handler) continue;
     for (const k of keys) {
@@ -161,7 +168,6 @@ async function loadTable(): Promise<boolean> {
       if (binding) table.push({ binding, handler });
     }
   }
-  return true;
 }
 
 /**
@@ -185,6 +191,18 @@ export async function initKeybindings(actions: Record<string, () => void>): Prom
     }
   });
   return true;
+}
+
+/**
+ * Swap the bound action set and rebuild the dispatch table from the bindings
+ * already loaded — used when an optional feature is toggled on or off, which
+ * changes which actions exist without changing the config. No-op before the
+ * initial load succeeded, since the dispatch listener was never installed.
+ */
+export function rebindActions(actions: Record<string, () => void>): void {
+  boundActions = actions;
+  if (!listenerInstalled) return;
+  buildTable();
 }
 
 /**

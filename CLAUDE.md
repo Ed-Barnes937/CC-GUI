@@ -47,6 +47,11 @@ re-derives `PATH` from the login shell at startup (so child processes like
 - **`theme.ts`** — GUI-owned theming: `Theme` type, built-in + custom registry, `applyTheme`/`onThemeChange`/`setMode`/`followSystem`. Kept Tauri-free so it's also imported by the no-flash boot plugin in `vite.config.ts`.
 - **`themeModal.ts`** — the live-preview theme picker.
 - **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, config UI.
+- **`features.ts`, `featureList.ts`** — the optional-feature registry: features
+  that not every user wants, contributing palette entries and keybindings and
+  toggled in Settings → Features. See
+  [ADR-0008](docs/adr/0008-optional-feature-registry.md); register a new one in
+  `featureList.ts`, not in `main.ts`.
 
 ## Theming
 
