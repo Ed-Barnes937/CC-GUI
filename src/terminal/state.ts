@@ -36,7 +36,6 @@ export function setActiveTerm(name: string | null): void {
   active = name;
 }
 
-// ------------------------------------------------------------- split panes
 // Console view can show up to 4 terminals at once, dragged into quadrant drop
 // zones. Layout is "columns-of-stacks": up to two columns, each an independent
 // stack of up to two rows (left = [TL, BL], right = [TR, BR]). Empty columns /
@@ -110,7 +109,6 @@ export function refitActive(): void {
   });
 }
 
-// ------------------------------------------------------------- split render
 // Split lives only in console layout: it re-parents the same `.term-container`
 // nodes (one PTY each) into pane cells, exactly like the board dock does. A
 // ResizeObserver on each cell re-fits its terminal on any size change (window,

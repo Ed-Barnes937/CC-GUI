@@ -8,6 +8,8 @@
 // (the GUI-only "Status" override). Each produces the same rows.
 
 import { showContextMenu } from "../menu";
+import { cycleSession } from "../commands";
+import { openTerminal } from "../terminal/attach";
 import { registerView } from "../app/render";
 import { sessionsEl } from "../app/elements";
 import {
@@ -440,4 +442,23 @@ export function renderEmptyProject(group: ProjectGroup): HTMLDivElement {
 
 document.querySelector<HTMLButtonElement>("#sidebar-menu")!.addEventListener("click", (e) => {
   showContextMenu(e, sidebarMenuItems());
+});
+
+// Native listbox navigation when the sidebar list itself holds focus: bare
+// ↑/↓ walk the cursor and Enter opens, matching the ARIA listbox pattern for
+// keyboard/AT users. The global Cmd+Opt+↑/↓ chords still work regardless of
+// focus; this only adds the standard interaction when #sessions is focused.
+sessionsEl.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.altKey || e.ctrlKey) return; // don't shadow the chords
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    cycleSession(1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    cycleSession(-1);
+  } else if (e.key === "Enter" && selectedSession()) {
+    e.preventDefault();
+    const s = findSession(selectedSession()!);
+    if (s) void openTerminal(s);
+  }
 });

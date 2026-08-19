@@ -120,7 +120,6 @@ export function closeTerminal(name: string): void {
   requestRender("sidebar");
 }
 
-// ---------------------------------------------------------------- board dock
 // In board mode the active session's terminal lives in the dock at the bottom
 // of #board: we MOVE the existing `.term-container` node out of #terminals into
 // #board-dock-surface (one PTY — no duplicate). The container is absolutely

@@ -41,17 +41,44 @@ re-derives `PATH` from the login shell at startup (so child processes like
 
 ### Frontend (`src/`)
 
-- **`main.ts`** — boot + wiring: theme init, terminals, palette commands, session rendering, window events.
+`main.ts` is boot only: it imports the view modules (each registers itself as
+it loads) and starts the snapshot listener. The layers below it run
+bottom-up — nothing in `app/` imports a view, and no view imports another.
+
+- **`app/`** — the layer everything else sits on. `types.ts` (the shapes the
+  backend pushes), `elements.ts` (the static chrome from `index.html`),
+  `store.ts` (the current snapshot, the GUI-owned prefs, the optimistic
+  delete/rename masks, and `applySnapshot`), `render.ts` (views register a
+  renderer under a name; callers ask for a name via `requestRender`), and
+  `actions.ts` (the invoke/catch/refresh wrappers).
+- **`terminal/`** — `state.ts` (which terminals exist and where),
+  `surface.ts` (the single/split/docked state machine), `attach.ts` (xterm +
+  the PTY channel), `tabs.ts`, `restart.ts` (crash-loop guard).
+- **`session/`** — what the sidebar and the board share: `row.ts` (row/card
+  parts and the shared context menu), `selection.ts` (one keyboard cursor,
+  drawn on both surfaces), `glyph.ts` (SessionRow → status vocabulary),
+  `detail.ts`, `diffstat.ts`, `create.ts`.
+- **`sidebar/`**, **`board/`** — the two session surfaces. Each has a
+  `state.ts` its render modules share, so they don't import each other.
+- **`chrome/`** — `titlebar.ts`, `attention.ts` (the queue behind both
+  attention pills), `layout.ts` (the Console/Board swap), `commander.ts`,
+  `onboarding.ts`.
+- **`commands.ts`** — one `KEY_ACTIONS` table backing the palette, the
+  configurable keybindings, and the accelerators that must beat xterm.
 - **`palette.ts`** — `Cmd/Ctrl+K` fuzzy command/session palette.
 - **`review.ts`** — diff rendering + inline review comments (via `@pierre/diffs`).
 - **`theme.ts`** — GUI-owned theming: `Theme` type, built-in + custom registry, `applyTheme`/`onThemeChange`/`setMode`/`followSystem`. Kept Tauri-free so it's also imported by the no-flash boot plugin in `vite.config.ts`.
-- **`themeModal.ts`** — the live-preview theme picker.
-- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, config UI.
+- **`themeModal.ts`, `theming.ts`** — the live-preview theme picker, and loading user-authored themes from disk.
+- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `drag.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, the shared pointer drag gesture, config UI.
 - **`features.ts`, `featureList.ts`** — the optional-feature registry: features
   that not every user wants, contributing palette entries and keybindings and
   toggled in Settings → Features. See
   [ADR-0008](docs/adr/0008-optional-feature-registry.md); register a new one in
-  `featureList.ts`, not in `main.ts`.
+  `featureList.ts`, not in `commands.ts`.
+
+Adding a view: register its renderer with `registerView`, read state from
+`app/store.ts`, and ask for redraws with `requestRender` rather than calling
+another view's render function.
 
 ## Theming
 
