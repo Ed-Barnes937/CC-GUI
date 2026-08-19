@@ -5,12 +5,11 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
-import { openReview, closeReview } from "./review";
+import { openReview } from "./review";
 import { openExplorer, closeExplorer, isExplorerOpen } from "./fileExplorer";
 import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewer";
 import { toast, confirmDialog, promptDialog } from "./toast";
 import { makeResizable, adjustPanelWidth } from "./resize";
-import { showContextMenu } from "./menu";
 import { kb } from "./keys";
 import { registerPaletteProvider, togglePalette } from "./palette";
 import { toggleHelp, setHelpKeybindings } from "./help";
@@ -22,37 +21,25 @@ import {
   rebindActions,
 } from "./keys";
 import { openSettings } from "./settings";
-import { commentsChip, pullBlockedChip, stateChipInfo, STATUS_TIERS } from "./status";
-import { noTextAssist } from "./dom";
-import { draggable } from "./drag";
+import { stateChipInfo, STATUS_TIERS } from "./status";
 import {
   sessionStateKey,
   sessionStateWord,
-  sessionStatusChip,
   sessionTier,
 } from "./session/glyph";
-import { projectPickerItems } from "./session/create";
 import {
   activeTerm,
-  focusedSlot,
-  panes,
   refitActive,
-  splitActive,
   terminals,
 } from "./terminal/state";
-import {
-  dockActiveTerminal,
-  exitSplit,
-  setDockDetached,
-  undockTerminal,
-  updateDockHeader,
-} from "./terminal/surface";
 import { activateTabByIndex, cycleTab } from "./terminal/tabs";
 import { attachTerminal, openShell, openTerminal } from "./terminal/attach";
 import "./terminal/restart";
-import { diffstatBar, parseDiffStat } from "./session/diffstat";
 import { closeDetail, detailOpenFor, generateSummary, toggleDetail } from "./session/detail";
 import { renderSidebar } from "./sidebar/index";
+import "./board/index";
+import { attentionCount, boardAttentionPill } from "./chrome/attention";
+import { setLayout } from "./chrome/layout";
 import {
   cycleViewMode,
   expandGroup,
@@ -65,7 +52,6 @@ import { deleteMergedSessions } from "./sidebar/menus";
 import {
   moveGroup,
   moveSelection,
-  onSelectionChange,
   selectRow,
   selectedSession,
   targetSession,
@@ -73,12 +59,8 @@ import {
 } from "./session/selection";
 import {
   deleteSession,
-  prBadge,
-  branchMatchesTitle,
   projClass,
   setRenamingId,
-  sessionMenuItems,
-  type RowRefs,
 } from "./session/row";
 import {
   initTheme,
@@ -95,9 +77,7 @@ import { openThemeModal } from "./themeModal";
 import { featurePalette, featureActions, onFeatureChange } from "./features";
 import "./featureList";
 import type {
-  SessionRow,
   Snapshot,
-  SessionDetail,
 } from "./app/types";
 import {
   sessionsEl,
@@ -105,17 +85,11 @@ import {
   onboardingEl,
   onboardingAddProjectBtn,
   onboardingCommanderBtn,
-  appEl,
   tbCount,
   tbAttention,
   tbConsole,
   tbBoard,
   commanderChip,
-  boardEl,
-  boardFilterEl,
-  boardColumnsEl,
-  boardDockEl,
-  boardDockBackdropEl,
 } from "./app/elements";
 import { registerView } from "./app/render";
 import {
@@ -127,13 +101,11 @@ import {
   groups,
   hasSnapshot,
   layout,
-  sectionNames,
   sectionView,
   sections,
-  setLayoutPref,
   statusGrouping,
 } from "./app/store";
-import { actionErrorToast, invokeToast, lifecycle, lifecycleArgs, refreshNow } from "./app/actions";
+import { actionErrorToast, invokeToast, lifecycle, refreshNow } from "./app/actions";
 
 // Apply the GUI theme (CSS custom properties) before any dynamic content renders,
 // then follow the OS appearance via the native Tauri theme event when in System mode.
@@ -439,36 +411,6 @@ onboardingCommanderBtn.addEventListener("click", () => commanderChip.click());
 // ----------------------------------------------------------------- title bar
 
 // The board's mirror of the attention pill; created with the filter bar.
-let boardAttentionEl: HTMLSpanElement | null = null;
-
-/** Sessions waiting on the user: the agent asked for input, or finished while
- *  away (unread) — the at-a-glance attention queue, in sidebar snapshot order.
- *  In lockstep with the status-chip vocabulary via sessionStateKey. */
-function attentionSessions(): SessionRow[] {
-  return groups().flatMap((g) => g.sessions).filter((s) => {
-    const key = sessionStateKey(s);
-    return key === "waiting" || key === "finished";
-  });
-}
-
-function attentionCount(): number {
-  return attentionSessions().length;
-}
-
-/** Jump to the next session that needs the user — select it and open its
- *  terminal — cycling through the attention queue on repeat activation, so the
- *  "N waiting on you" pill doubles as a one-key sweep of everything blocked on
- *  you. No-op when nothing waits. */
-function jumpToAttention(): void {
-  const queue = attentionSessions();
-  if (!queue.length) return;
-  const cur = selectedSession() ? queue.findIndex((s) => s.id === selectedSession()) : -1;
-  const next = queue[(cur + 1) % queue.length];
-  setLayout("console");
-  selectRow(next.id);
-  void openTerminal(next);
-}
-
 function updateTitleBarCounts(): void {
   const total = groups().reduce((n, g) => n + g.sessions.length, 0);
   const live = groups().flatMap((g) => g.sessions).filter((s) => s.status === "running").length;
@@ -476,51 +418,17 @@ function updateTitleBarCounts(): void {
   const waiting = attentionCount();
   tbAttention.textContent = `${waiting} waiting on you`;
   tbAttention.classList.toggle("hidden", waiting === 0);
-  if (boardAttentionEl) {
-    boardAttentionEl.textContent = `${waiting} waiting on you`;
-    boardAttentionEl.classList.toggle("hidden", waiting === 0);
+  const mirror = boardAttentionPill();
+  if (mirror) {
+    mirror.textContent = `${waiting} waiting on you`;
+    mirror.classList.toggle("hidden", waiting === 0);
   }
 }
 
 registerView("titlebar", updateTitleBarCounts);
 
-/** Make an attention pill actionable: click or Enter/Space jumps to the next
- *  session that needs you (see jumpToAttention). The title-bar markup already
- *  carries role/tabindex/aria-live; the board mirror gets them here. */
-function wireAttentionPill(el: HTMLElement): void {
-  el.addEventListener("click", jumpToAttention);
-  el.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      jumpToAttention();
-    }
-  });
-}
-wireAttentionPill(tbAttention);
-
-function setLayout(next: "console" | "board"): void {
-  if (next === layout()) return;
-  // Split lives only in console. Collapse it (keeping the focused pane) while
-  // the DOM is still in console layout, before switching surfaces.
-  const slot = focusedSlot();
-  if (splitActive()) exitSplit(slot ? panes.get(slot)! : activeTerm());
-  setLayoutPref(next);
-  closeReview();
-  appEl.classList.toggle("board-mode", next === "board");
-  boardEl.classList.toggle("hidden", next !== "board");
-  tbConsole.classList.toggle("active", next === "console");
-  tbBoard.classList.toggle("active", next === "board");
-  // Re-parent the active terminal into/out of the dock now that the target
-  // surface is visible, then fit it (dock/undock fit internally).
-  if (next === "board") {
-    setDockDetached(false); // a fresh board entry re-docks the active terminal
-    dockActiveTerminal();
-  } else {
-    setDockFullscreen(false);
-    undockTerminal();
-  }
-}
-
+// The title bar's own controls. The layout swap itself lives in
+// chrome/layout.ts; these are the buttons that ask for it.
 tbConsole.addEventListener("click", () => setLayout("console"));
 tbBoard.addEventListener("click", () => {
   // The Board has nothing to show before the first project — keep the hero
@@ -536,62 +444,6 @@ document
   .querySelector<HTMLButtonElement>("#tb-theme")!
   .addEventListener("click", () => openThemeModal(currentTheme().appearance));
 document.querySelector<HTMLButtonElement>("#tb-help")!.addEventListener("click", () => toggleHelp());
-
-// Initialize segment + board visibility from persisted layout.
-appEl.classList.toggle("board-mode", layout() === "board");
-boardEl.classList.toggle("hidden", layout() !== "board");
-tbConsole.classList.toggle("active", layout() === "console");
-tbBoard.classList.toggle("active", layout() === "board");
-// Dock the active terminal (if any) when booting straight into board mode.
-if (layout() === "board") dockActiveTerminal();
-
-// Dock "×" closes the preview: undock the terminal back to #terminals and
-// collapse the whole dock panel so the columns fill the board. It does NOT kill
-// the PTY — the session stays attached and the terminal reappears in Console
-// (or on the next card ▸, which reopens the dock). Also drops out of the
-// fullscreen overlay if it was open (nothing left to show fullscreen).
-document.querySelector<HTMLButtonElement>("#board-dock-close")!.addEventListener("click", () => {
-  setDockFullscreen(false);
-  undockTerminal();
-  setDockDetached(true);
-  updateDockHeader();
-});
-// Dock "⤢": float the docked terminal into a centred ~85% overlay over a dimmed
-// backdrop — obviously a dismissable dialog, not a panel that ate the window.
-// Toggling clears any drag-set inline height so the overlay's CSS size wins, and
-// re-fits the xterm into the new surface.
-function setDockFullscreen(on: boolean): void {
-  boardDockEl.classList.toggle("dock-fullscreen", on);
-  boardDockBackdropEl.classList.toggle("hidden", !on);
-  // makeResizable sets an inline `position: relative` (+ height) on the dock, and
-  // inline styles beat the overlay's stylesheet rule — so toggle them directly.
-  if (on) {
-    boardDockEl.style.position = "fixed";
-    boardDockEl.style.height = ""; // let the overlay's CSS inset size win
-  } else {
-    boardDockEl.style.position = "relative";
-    const saved = Number(localStorage.getItem("cc-dock-height"));
-    boardDockEl.style.height = saved ? `${saved}px` : ""; // restore the resized height
-  }
-  if (layout() === "board") dockActiveTerminal();
-}
-document.querySelector<HTMLButtonElement>("#board-dock-expand")!.addEventListener("click", () => {
-  setDockFullscreen(!boardDockEl.classList.contains("dock-fullscreen"));
-});
-boardDockBackdropEl.addEventListener("click", () => setDockFullscreen(false));
-
-// Dock vertical resize: drag the separator between the columns and the dock to
-// set the dock height. Re-fits the docked xterm on each frame.
-makeResizable({
-  key: "cc-dock-height",
-  target: boardDockEl,
-  edge: "top",
-  min: 120,
-  max: 600,
-  onResize: () => {
-    if (layout() === "board") dockActiveTerminal();
-  },
-});
 
 // ------------------------------------------------------------ commander chip
 
@@ -628,725 +480,6 @@ commanderChip.addEventListener("click", () => {
 });
 
 // ------------------------------------------------------------------- board
-
-// Board layout: which cards are visible (filter pills) + a name search. Mirrors
-// projectFilter's "local UI state, re-render on change" shape.
-let boardSearch = "";
-// Project multiselect filter: the set of selected project ids, or null for "all
-// projects" (the default). Cards whose project isn't selected are hidden across
-// every section column.
-let boardProjectFilter: Set<string> | null = null;
-// Hide section columns with zero visible cards (persisted).
-let hideEmptyColumns = localStorage.getItem("cc-board-hide-empty") === "1";
-//
-// The Board layout renders the SAME snapshot `groups` as the sidebar — one
-// column per project, agent cards inside — reusing the Console helpers
-// (projClass / applyStatusGlyph / sessionMenuItems / openReview /
-// openTerminal). Selection is shared with the sidebar via `selectedId`.
-
-/** Card DOM refs by session id, so updateSelectionClasses can toggle the
- *  selected border without a full rebuild. Rebuilt on every renderBoard. */
-const boardCardRefs = new Map<string, HTMLDivElement>();
-
-/** Per-session diffstat cache, lazily filled from get_session_detail, keyed by
- *  id so a card keeps its bar across re-renders. `null` = fetched, no diff;
- *  absent = not yet fetched. */
-const boardDiffStats = new Map<string, string | null>();
-const boardDiffPending = new Set<string>();
-
-/** Map a liveness `.dot` state class to the semantic token class the accent
- *  bar / state pill use. Keeps the board in lockstep with the dot colours
- *  without re-deriving the status logic (we read applyStatusGlyph's output). */
-function boardStateClass(s: SessionRow): string {
-  return `state-${sessionStateKey(s)}`; // running → state-running, in lockstep with the dot/chip mapping
-}
-
-/** Every project id known to the current snapshot, in board order. */
-function allProjectIds(): string[] {
-  return groups().map((g) => g.id);
-}
-
-/** The selected project ids, bounded to projects still present in the snapshot.
- *  null (the default) means every project — returned here as the full set. */
-function selectedProjectIds(): Set<string> {
-  const all = allProjectIds();
-  return boardProjectFilter ? new Set(all.filter((id) => boardProjectFilter!.has(id))) : new Set(all);
-}
-
-/** Does a session pass the project filter? Search composes on top. */
-function boardMatchesFilter(s: SessionRow): boolean {
-  return !boardProjectFilter || boardProjectFilter.has(s.project_id);
-}
-
-function boardMatchesSearch(s: SessionRow): boolean {
-  if (!boardSearch) return true;
-  return s.title.toLowerCase().includes(boardSearch.toLowerCase());
-}
-
-/** A board column: the sessions pinned to one section (or the leading "no
- *  section" catch-all), already narrowed by filter + search. `key` is the
- *  section name, or `NO_SECTION_KEY` for the catch-all. */
-type BoardSection = { key: string; name: string; sessions: SessionRow[] };
-
-// Sentinel key for the leading catch-all column (sessions with no section pin,
-// and — when no sections are configured at all — every session).
-const NO_SECTION_KEY = "\x00none";
-const NO_SECTION_LABEL = "No section";
-
-/** All sessions across projects, bucketed into section columns and narrowed by
- *  the active filter + search. The catch-all "no section" column comes first,
- *  then one column per configured section in `sectionNames` order. */
-function boardSectionColumns(): BoardSection[] {
-  const none: BoardSection = { key: NO_SECTION_KEY, name: NO_SECTION_LABEL, sessions: [] };
-  const byName = new Map<string, BoardSection>();
-  const cols: BoardSection[] = [none];
-  for (const name of sectionNames()) {
-    const col: BoardSection = { key: name, name, sessions: [] };
-    byName.set(name, col);
-    cols.push(col);
-  }
-  for (const g of groups()) {
-    for (const s of g.sessions) {
-      if (!(boardMatchesFilter(s) && boardMatchesSearch(s))) continue;
-      const sec = s.current_section;
-      (sec && byName.get(sec) ? byName.get(sec)! : none).sessions.push(s);
-    }
-  }
-  return cols;
-}
-
-/** Lazy-fetch a session's diffstat for its card bar; fill in place when it
- *  lands. Skips while a fetch is in flight or already cached. */
-function ensureBoardDiffStat(id: string, bar: HTMLElement): void {
-  if (boardDiffStats.has(id)) {
-    fillDiffstatBar(bar, boardDiffStats.get(id) ?? null);
-    return;
-  }
-  if (boardDiffPending.has(id)) return;
-  boardDiffPending.add(id);
-  invoke<SessionDetail | null>("get_session_detail", { id })
-    .then((d) => {
-      boardDiffStats.set(id, d?.diff_stat ?? null);
-      if (bar.isConnected) fillDiffstatBar(bar, d?.diff_stat ?? null);
-    })
-    .catch(() => {
-      /* transient — leave uncached so a later render retries */
-    })
-    .finally(() => boardDiffPending.delete(id));
-}
-
-/** Render a diffstat into a card's bar: colorized +adds/−dels counts above a
- *  proportional add/remove bar. Mirrors renderDetail's parsing. Omits both when
- *  there is no diff (graceful — never fabricated). */
-function fillDiffstatBar(container: HTMLElement, diffStat: string | null): void {
-  container.innerHTML = "";
-  const stat = diffStat ? parseDiffStat(diffStat) : null;
-  if (!stat || stat.adds + stat.dels === 0) {
-    container.classList.add("hidden");
-    return;
-  }
-  container.classList.remove("hidden");
-  const counts = document.createElement("div");
-  counts.className = "card-diffcounts";
-  const a = document.createElement("span");
-  a.className = "added";
-  a.textContent = `+${stat.adds}`;
-  const r = document.createElement("span");
-  r.className = "removed";
-  r.textContent = `−${stat.dels}`;
-  counts.append(a, r);
-  // Bar on top, counts below (the Refined board layout): the proportional bar
-  // spans the card, then the +adds/−dels counts sit on their own line and wrap
-  // rather than clipping at the column edge.
-  container.append(diffstatBar(stat.adds, stat.dels), counts);
-}
-
-/** One agent card for a session. */
-function renderAgentCard(s: SessionRow): HTMLDivElement {
-  const card = document.createElement("div");
-  // State class drives the 3px left accent border (--state-color); in lockstep
-  // with the status chip's colour.
-  card.className = `agent-card ${boardStateClass(s)}`;
-  card.classList.toggle("selected", selectedSession() === s.id);
-  boardCardRefs.set(s.id, card);
-
-  // The card is the primary keyboard target: a role=button tile in the board's
-  // roving-tabindex group (updateBoardRoving picks which card is tab-focusable;
-  // the arrow/Enter handler on #board-columns does the rest). Enter/Space attach.
-  card.setAttribute("role", "button");
-  card.setAttribute("aria-label", `${s.title}, ${s.project_name}`);
-  card.tabIndex = -1;
-
-  // Drag the card onto another section column to re-pin it. The move commits on
-  // release over a column, so an Esc-cancelled drag is a no-op. The card's own
-  // click/⋯/▸/± handlers still fire when the pointer doesn't move (no drag).
-  card.dataset.id = s.id;
-  draggable(card, () => {
-    card.classList.add("dragging");
-    return {
-      onMove(x, y) {
-        clearCardDropTargets();
-        document
-          .elementFromPoint(x, y)
-          ?.closest<HTMLElement>(".board-col")
-          ?.classList.add("card-drop-target");
-      },
-      onDrop(x, y) {
-        const col = document.elementFromPoint(x, y)?.closest<HTMLElement>(".board-col");
-        const key = col?.dataset.section;
-        if (key === undefined) return;
-        // The catch-all column clears the pin (section: null); real columns pin
-        // to the section name (dataset.section === the section name).
-        const target = key === NO_SECTION_KEY ? null : key;
-        if ((findSession(s.id)?.current_section ?? null) === target) return; // no-op drop
-        void lifecycleArgs("move_to_section", { id: s.id, section: target });
-      },
-      onEnd() {
-        card.classList.remove("dragging");
-        clearCardDropTargets();
-      },
-    };
-  });
-
-  // Header: a title block (session name over its project) + status chip + ⋯
-  // menu. Cards now group by section, not project, so the project is named on
-  // each card: the session title is primary (h1), the project secondary (h2).
-  const header = document.createElement("div");
-  header.className = "card-header";
-  const heading = document.createElement("div");
-  heading.className = "card-heading";
-  const name = document.createElement("span");
-  name.className = "card-title";
-  name.textContent = s.title;
-  // The title truncates with an ellipsis, so its tooltip restores the full
-  // session name (the branch has its own tooltip on the subtitle below).
-  name.title = s.title;
-  const project = document.createElement("span");
-  project.className = "card-project";
-  const square = document.createElement("span");
-  square.className = `proj-square ${projClass(s.project_id)}`;
-  const projName = document.createElement("span");
-  projName.className = "card-project-name";
-  projName.textContent = s.project_name;
-  project.append(square, projName);
-  project.title = s.project_name;
-  heading.append(name, project);
-  const menu = document.createElement("button");
-  menu.className = "row-action card-menu";
-  menu.textContent = "⋯";
-  menu.title = "Session menu";
-  menu.addEventListener("click", (e) => {
-    e.stopPropagation();
-    showContextMenu(e, sessionMenuItems(cardRefs(s)));
-  });
-  header.append(heading, menu);
-  card.appendChild(header);
-
-  // Status chip on its own row under the title — beside the title it crowded
-  // long session names into early ellipsis. The 3px left accent border
-  // reinforces its colour; the board uses the compact chip variant.
-  const chip = sessionStatusChip(s);
-  chip.classList.add("compact");
-  const statusRow = document.createElement("div");
-  statusRow.className = "card-status-row";
-  // Non-color cue that this card's terminal is the one docked below — shown by
-  // CSS only when the card is `.selected` (the board's docked session). Pairs
-  // with the accent outline so the docked state survives grayscale.
-  const docked = document.createElement("span");
-  docked.className = "card-docked";
-  docked.textContent = "▸ docked";
-  statusRow.append(chip, docked);
-  card.appendChild(statusRow);
-
-  // Branch line under the title — only when it diverges from the title (it's
-  // usually just a slug of the name), mirroring the sidebar row. Omitted
-  // otherwise to keep cards compact. The PR badge lives in the footer.
-  if (!branchMatchesTitle(s.title, s.branch)) {
-    const sub = document.createElement("div");
-    sub.className = "card-subtitle";
-    const branch = document.createElement("span");
-    branch.className = "card-branch";
-    branch.textContent = s.branch;
-    branch.title = `Branch: ${s.branch}`;
-    sub.appendChild(branch);
-    card.appendChild(sub);
-  }
-
-  // Diffstat bar (lazy; hidden until a diff lands).
-  const diff = document.createElement("div");
-  diff.className = "card-diffstat hidden";
-  card.appendChild(diff);
-  ensureBoardDiffStat(s.id, diff);
-
-  // Footer: PR badge + ✎/⚠ chips over an always-visible action row of labeled
-  // buttons — Attach (accent, the primary action) / ± Review (info). The chips
-  // row collapses when empty, so cards without badges lose no vertical budget.
-  const footer = document.createElement("div");
-  footer.className = "card-footer";
-  const chips = document.createElement("span");
-  chips.className = "card-chips";
-  const prChip = prBadge(s);
-  if (prChip) chips.appendChild(prChip);
-  if (s.has_pending_comments) {
-    chips.appendChild(commentsChip(undefined, "Has pending review comments"));
-  }
-  const blocked = groupOf(s.id)?.pull_blocked;
-  if (blocked) {
-    chips.appendChild(pullBlockedChip(`Auto-pull blocked: ${blocked}`));
-  }
-  const actions = document.createElement("span");
-  actions.className = "card-actions";
-  // Attach path shared by the ▸ button and a card-body click: select, clear any
-  // prior "×" detach, and open the terminal (which docks in board mode).
-  const attachCard = (): void => {
-    selectRow(s.id);
-    setDockDetached(false); // an explicit attach re-docks even after a "×" detach
-    void openTerminal(s);
-  };
-  const attach = document.createElement("button");
-  attach.className = "card-action attach";
-  attach.textContent = "Attach";
-  attach.title = "Attach";
-  attach.addEventListener("click", (e) => {
-    e.stopPropagation();
-    attachCard();
-  });
-  const review = document.createElement("button");
-  review.className = "card-action review";
-  review.textContent = "± Review";
-  review.title = "Review diff";
-  review.addEventListener("click", (e) => {
-    e.stopPropagation();
-    void openReview(s.id, s.title);
-  });
-  actions.append(attach, review);
-  footer.append(chips, actions);
-  card.appendChild(footer);
-
-  // Click attaches (same as ▸); right-click opens the same menu as the ⋯ button.
-  // The ▸/±/⋯ buttons stopPropagation, so they never double-trigger this.
-  card.addEventListener("click", attachCard);
-  card.addEventListener("contextmenu", (e) => showContextMenu(e, sessionMenuItems(cardRefs(s))));
-  return card;
-}
-
-/** Minimal RowRefs for sessionMenuItems from a card (it reads only .session;
- *  rename routes through the sidebar, which is acceptable on the board). */
-function cardRefs(s: SessionRow): RowRefs {
-  return {
-    row: document.createElement("div"),
-    main: document.createElement("div"),
-    actions: document.createElement("div"),
-    status: s.status,
-    session: s,
-  };
-}
-
-// Board column order is GUI-owned (like theme/layout prefs): the canonical order
-// is the "no section" catch-all first, then sections in their configured order.
-// We re-sort client-side from a persisted key list so drag-to-reorder sticks
-// across reloads without touching CC config.
-const BOARD_ORDER_KEY = "cc-board-col-order";
-function loadBoardOrder(): string[] {
-  try {
-    const raw = localStorage.getItem(BOARD_ORDER_KEY);
-    return Array.isArray(JSON.parse(raw ?? "")) ? (JSON.parse(raw!) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-let boardColOrder = loadBoardOrder();
-
-/** Section columns re-sorted by the persisted column order. Columns absent from
- *  the saved order (new sections) keep their canonical position, after the
- *  ranked ones — Array.sort is stable, so unranked relative order is preserved. */
-function orderedSectionColumns(): BoardSection[] {
-  const rank = new Map(boardColOrder.map((key, i) => [key, i] as const));
-  return [...boardSectionColumns()].sort(
-    (a, b) => (rank.get(a.key) ?? Infinity) - (rank.get(b.key) ?? Infinity),
-  );
-}
-
-/** The column to drop before, given the pointer's x (null = past the last). */
-function colBeforeX(x: number): HTMLElement | null {
-  const cols = [...boardColumnsEl.querySelectorAll<HTMLElement>(".board-col:not(.dragging)")];
-  for (const c of cols) {
-    const r = c.getBoundingClientRect();
-    if (x < r.left + r.width / 2) return c;
-  }
-  return null;
-}
-
-/** Insertion marker, mirroring the tab strip: an accent line on the edge where
- *  the dragged column will land (left for "before", right of the last for end). */
-function showColDropMarker(target: HTMLElement | null): void {
-  clearColDropMarker();
-  if (target) {
-    target.classList.add("drop-before");
-  } else {
-    const cols = boardColumnsEl.querySelectorAll<HTMLElement>(".board-col:not(.dragging)");
-    cols[cols.length - 1]?.classList.add("drop-after");
-  }
-}
-function clearColDropMarker(): void {
-  for (const c of boardColumnsEl.querySelectorAll(".board-col.drop-before, .board-col.drop-after")) {
-    c.classList.remove("drop-before", "drop-after");
-  }
-}
-
-/** Remove the card-drop highlight from every column. */
-function clearCardDropTargets(): void {
-  for (const c of boardColumnsEl.querySelectorAll(".board-col.card-drop-target")) {
-    c.classList.remove("card-drop-target");
-  }
-}
-
-// ── Board keyboard navigation ──────────────────────────────────────────────
-// The board is a roving-tabindex group: exactly one card is tab-focusable, so
-// Tab lands on a card; arrows then move focus across cards and columns, and
-// Enter/Space attaches. Roving *focus* is distinct from *selection* — the
-// `.selected`/docked card (see selectRow) — so browsing the board never docks a
-// session until you press Enter.
-let boardFocusId: string | null = null;
-
-function boardCards(): HTMLDivElement[] {
-  return [...boardColumnsEl.querySelectorAll<HTMLDivElement>(".agent-card")];
-}
-
-/** Give exactly one card `tabIndex 0` — the docked card if visible, else the
- *  last-focused card, else the first — so Tab enters the board on a sensible
- *  card. Called after every column rebuild. */
-function updateBoardRoving(): void {
-  const cards = boardCards();
-  const chosen =
-    (selectedSession() ? boardCardRefs.get(selectedSession()!) : undefined) ??
-    (boardFocusId ? boardCardRefs.get(boardFocusId) : undefined) ??
-    cards[0];
-  for (const c of cards) c.tabIndex = c === chosen ? 0 : -1;
-  boardFocusId = chosen?.dataset.id ?? boardFocusId;
-}
-
-/** Move roving focus to `card`, updating the tabindex so it stays the entry
- *  point, then focus it. */
-function focusBoardCard(card: HTMLDivElement | undefined): void {
-  if (!card) return;
-  for (const c of boardCards()) c.tabIndex = c === card ? 0 : -1;
-  boardFocusId = card.dataset.id ?? null;
-  card.focus();
-}
-
-/** Focus the card nearest `rowIdx` in the first non-empty column found stepping
- *  `dir` from `colIdx` (skips empty columns). */
-function focusAdjacentColumn(
-  cols: HTMLElement[],
-  colIdx: number,
-  dir: 1 | -1,
-  rowIdx: number,
-): void {
-  for (let i = colIdx + dir; i >= 0 && i < cols.length; i += dir) {
-    const cards = [...cols[i].querySelectorAll<HTMLDivElement>(".agent-card")];
-    if (cards.length) {
-      focusBoardCard(cards[Math.min(rowIdx, cards.length - 1)]);
-      return;
-    }
-  }
-}
-
-boardColumnsEl.addEventListener("keydown", (e) => {
-  const card = (e.target as HTMLElement | null)?.closest<HTMLDivElement>(".agent-card");
-  // Only when the card itself holds focus — leave inner buttons (Attach/Review/⋯)
-  // to their own native key handling.
-  if (!card || card !== e.target) return;
-  const cols = [...boardColumnsEl.querySelectorAll<HTMLElement>(".board-col")];
-  const colIdx = cols.findIndex((c) => c.contains(card));
-  const siblings = [
-    ...(card.closest(".board-col-body")?.querySelectorAll<HTMLDivElement>(".agent-card") ?? []),
-  ];
-  const rowIdx = siblings.indexOf(card);
-  switch (e.key) {
-    case "ArrowDown":
-      e.preventDefault();
-      focusBoardCard(siblings[rowIdx + 1]);
-      break;
-    case "ArrowUp":
-      e.preventDefault();
-      focusBoardCard(siblings[rowIdx - 1]);
-      break;
-    case "ArrowRight":
-      e.preventDefault();
-      focusAdjacentColumn(cols, colIdx, 1, rowIdx);
-      break;
-    case "ArrowLeft":
-      e.preventDefault();
-      focusAdjacentColumn(cols, colIdx, -1, rowIdx);
-      break;
-    case "Enter":
-    case " ":
-      e.preventDefault();
-      card.click(); // card click === attachCard
-      break;
-  }
-});
-
-/** One section column: header (name + visible count) over a body of stacked
- *  agent cards. Rendered for every section incl. the "no section" catch-all. */
-function renderBoardColumn(sec: BoardSection): HTMLDivElement {
-  const col = document.createElement("div");
-  col.className = "board-col";
-  col.dataset.section = sec.key; // read by the card drag (renderAgentCard) as the drop target
-
-  const header = document.createElement("div");
-  header.className = "board-col-header";
-  // Drag the header to reorder columns within the strip. The new order commits
-  // on release over the strip, so an Esc-cancelled drag leaves it intact.
-  draggable(header, () => {
-    col.classList.add("dragging");
-    return {
-      onMove(x, y) {
-        if (document.elementFromPoint(x, y)?.closest("#board-columns")) {
-          showColDropMarker(colBeforeX(x));
-        } else {
-          clearColDropMarker();
-        }
-      },
-      onDrop(x, y) {
-        if (!document.elementFromPoint(x, y)?.closest("#board-columns")) return;
-        const beforeKey = colBeforeX(x)?.dataset.section ?? null;
-        const order = orderedSectionColumns()
-          .map((s) => s.key)
-          .filter((key) => key !== sec.key);
-        const idx = beforeKey ? order.indexOf(beforeKey) : order.length;
-        order.splice(idx, 0, sec.key);
-        boardColOrder = order;
-        localStorage.setItem(BOARD_ORDER_KEY, JSON.stringify(order));
-        renderBoardColumns();
-      },
-      onEnd() {
-        col.classList.remove("dragging");
-        clearColDropMarker();
-      },
-    };
-  });
-  const name = document.createElement("span");
-  name.className = "board-col-name";
-  name.textContent = sec.name;
-  name.title = sec.name;
-
-  const count = document.createElement("span");
-  count.className = "board-col-count";
-  count.textContent = String(sec.sessions.length);
-
-  header.append(name, count);
-  col.appendChild(header);
-
-  const body = document.createElement("div");
-  body.className = "board-col-body";
-  body.dataset.section = sec.key;
-  for (const s of sec.sessions) body.appendChild(renderAgentCard(s));
-  col.appendChild(body);
-  return col;
-}
-
-/** Filter bar: Hide-empty toggle + project filter + name search + primary
- *  "New session". */
-function renderBoardFilterBar(): void {
-  boardFilterEl.innerHTML = "";
-
-  const pills = document.createElement("div");
-  pills.className = "board-pills";
-
-  // Attention summary at the top of the Board, mirroring the title-bar pill
-  // (updateTitleBarCounts fills both). Hidden while nothing waits.
-  boardAttentionEl = document.createElement("span");
-  boardAttentionEl.className = "board-attention hidden";
-  boardAttentionEl.setAttribute("role", "button");
-  boardAttentionEl.tabIndex = 0;
-  boardAttentionEl.setAttribute("aria-live", "polite");
-  boardAttentionEl.title = "Jump to the next session that needs you";
-  wireAttentionPill(boardAttentionEl);
-  pills.appendChild(boardAttentionEl);
-
-  // Toggle: hide section columns with zero visible cards.
-  const hideEmpty = document.createElement("button");
-  hideEmpty.className = "board-pill hide-empty";
-  hideEmpty.textContent = "Hide empty";
-  hideEmpty.title = "Hide section columns with no cards";
-  hideEmpty.classList.toggle("active", hideEmptyColumns);
-  hideEmpty.addEventListener("click", () => {
-    hideEmptyColumns = !hideEmptyColumns;
-    localStorage.setItem("cc-board-hide-empty", hideEmptyColumns ? "1" : "0");
-    renderBoardFilterBar();
-    // The rebuild recreated the attention pill blank — refill it now rather
-    // than leaving it empty until the next poll snapshot.
-    updateTitleBarCounts();
-    renderBoardColumns();
-  });
-  pills.appendChild(hideEmpty);
-
-  const search = noTextAssist(document.createElement("input"));
-  search.className = "board-search";
-  search.type = "search";
-  search.placeholder = "Search sessions…";
-  search.value = boardSearch;
-  search.addEventListener("input", () => {
-    boardSearch = search.value;
-    renderBoardColumns();
-  });
-
-  const create = document.createElement("button");
-  create.className = "board-new primary";
-  create.textContent = "＋ New session";
-  create.title = "New session";
-  create.addEventListener("click", (e) => showContextMenu(e, projectPickerItems()));
-
-  boardFilterEl.append(pills, buildProjectFilter(), search, create);
-}
-
-/** Multiselect project filter: a button summarising the selection, over a
- *  popover of per-project checkboxes with Select-all / Clear-all helpers.
- *  Defaults to all projects; the selection lives in `boardProjectFilter`. */
-function buildProjectFilter(): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "board-project-filter";
-
-  const btn = document.createElement("button");
-  btn.className = "board-pill board-project-btn";
-  btn.title = "Filter by project";
-
-  const panel = document.createElement("div");
-  panel.className = "board-project-panel hidden";
-
-  const updateSummary = (): void => {
-    const total = allProjectIds().length;
-    const sel = selectedProjectIds();
-    btn.classList.toggle("active", sel.size !== total);
-    let label: string;
-    if (sel.size === total) label = "All projects";
-    else if (sel.size === 0) label = "No projects";
-    else if (sel.size === 1) label = groups().find((g) => sel.has(g.id))?.name ?? "1 project";
-    else label = `${sel.size} projects`;
-    btn.textContent = `${label} ▾`;
-  };
-
-  const commit = (next: Set<string> | null): void => {
-    boardProjectFilter = next && next.size === allProjectIds().length ? null : next;
-    updateSummary();
-    renderBoardColumns();
-  };
-
-  const rebuildPanel = (): void => {
-    panel.innerHTML = "";
-    const tools = document.createElement("div");
-    tools.className = "board-project-tools";
-    const selectAll = document.createElement("button");
-    selectAll.className = "board-project-tool";
-    selectAll.textContent = "Select all";
-    selectAll.addEventListener("click", (e) => {
-      e.stopPropagation();
-      commit(null);
-      rebuildPanel();
-    });
-    const clearAll = document.createElement("button");
-    clearAll.className = "board-project-tool";
-    clearAll.textContent = "Clear all";
-    clearAll.addEventListener("click", (e) => {
-      e.stopPropagation();
-      commit(new Set());
-      rebuildPanel();
-    });
-    tools.append(selectAll, clearAll);
-    panel.appendChild(tools);
-
-    const selected = selectedProjectIds();
-    for (const g of groups()) {
-      const row = document.createElement("label");
-      row.className = "board-project-row";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = selected.has(g.id);
-      cb.addEventListener("change", () => {
-        const sel = selectedProjectIds();
-        if (cb.checked) sel.add(g.id);
-        else sel.delete(g.id);
-        commit(sel);
-      });
-      const square = document.createElement("span");
-      square.className = `proj-square ${projClass(g.id)}`;
-      const name = document.createElement("span");
-      name.className = "board-project-name";
-      name.textContent = g.name;
-      row.append(cb, square, name);
-      panel.appendChild(row);
-    }
-  };
-
-  const onDocClick = (e: MouseEvent): void => {
-    if (!wrap.contains(e.target as Node)) close();
-  };
-  const close = (): void => {
-    panel.classList.add("hidden");
-    document.removeEventListener("click", onDocClick, true);
-  };
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (panel.classList.contains("hidden")) {
-      rebuildPanel();
-      panel.classList.remove("hidden");
-      document.addEventListener("click", onDocClick, true);
-    } else {
-      close();
-    }
-  });
-
-  updateSummary();
-  wrap.append(btn, panel);
-  return wrap;
-}
-
-/** Rebuild the columns from the current snapshot + filter + search. */
-function renderBoardColumns(): void {
-  // Columns are rebuilt wholesale on every snapshot tick (~2s); capture the
-  // per-column vertical scroll (keyed by section) + the strip's horizontal
-  // scroll so an in-progress session doesn't yank the view back to the top.
-  const prevScroll = new Map<string, number>();
-  for (const body of boardColumnsEl.querySelectorAll<HTMLElement>(".board-col-body")) {
-    if (body.dataset.section) prevScroll.set(body.dataset.section, body.scrollTop);
-  }
-  const prevScrollLeft = boardColumnsEl.scrollLeft;
-
-  boardCardRefs.clear();
-  boardColumnsEl.innerHTML = "";
-  for (const sec of orderedSectionColumns()) {
-    // "Hide empty" hides columns with no VISIBLE cards, so a section whose
-    // sessions are all filtered out drops too.
-    if (hideEmptyColumns && sec.sessions.length === 0) continue;
-    boardColumnsEl.appendChild(renderBoardColumn(sec));
-  }
-
-  for (const body of boardColumnsEl.querySelectorAll<HTMLElement>(".board-col-body")) {
-    const top = body.dataset.section ? prevScroll.get(body.dataset.section) : undefined;
-    if (top) body.scrollTop = top;
-  }
-  boardColumnsEl.scrollLeft = prevScrollLeft;
-  updateBoardRoving();
-}
-
-/** Full board render. The filter bar is rebuilt only when needed (it owns the
- *  live search input); columns rebuild on every snapshot tick. Preserving the
- *  search field's focus/value: the input keeps its own value, and a snapshot
- *  re-render only touches columns, never the filter bar. */
-function renderBoard(): void {
-  if (!boardFilterEl.childElementCount) renderBoardFilterBar();
-  renderBoardColumns();
-}
-
-registerView("board", renderBoard);
-
-// Board cards draw the same cursor the sidebar rows do.
-onSelectionChange(() => {
-  const id = selectedSession();
-  for (const [cardId, card] of boardCardRefs) card.classList.toggle("selected", cardId === id);
-});
 
 // ---------------------------------------------------------------- palette
 
