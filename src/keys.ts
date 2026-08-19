@@ -215,3 +215,9 @@ export async function reloadKeybindings(): Promise<boolean> {
   if (!listenerInstalled) return false;
   return loadTable();
 }
+
+/** The first bound chord for an action, formatted for a menu hint. */
+export function kb(action: string): string | undefined {
+  const first = (loadedBindings[action] ?? [])[0];
+  return (first && formatBinding(first)) || undefined;
+}

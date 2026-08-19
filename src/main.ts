@@ -8,16 +8,16 @@ import "./style.css";
 import { openReview, closeReview } from "./review";
 import { openExplorer, closeExplorer, isExplorerOpen } from "./fileExplorer";
 import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewer";
-import { toast, confirmDialog, promptDialog, deleteSessionDialog } from "./toast";
+import { toast, confirmDialog, promptDialog } from "./toast";
 import { makeResizable, adjustPanelWidth } from "./resize";
 import { showContextMenu, MenuItem } from "./menu";
+import { kb } from "./keys";
 import { registerPaletteProvider, togglePalette } from "./palette";
 import { toggleHelp, setHelpKeybindings } from "./help";
 import {
   initKeybindings,
   reloadKeybindings,
   loadedBindings,
-  formatBinding,
   overlayOpen as keyOverlayOpen,
   rebindActions,
 } from "./keys";
@@ -30,7 +30,6 @@ import {
   sessionStateWord,
   sessionStatusChip,
   sessionTier,
-  statusGlyph,
 } from "./session/glyph";
 import { createSessionInProject, projectPickerItems, startSession } from "./session/create";
 import {
@@ -42,7 +41,6 @@ import {
   terminals,
 } from "./terminal/state";
 import {
-  closeTerminal,
   dockActiveTerminal,
   exitSplit,
   setDockDetached,
@@ -54,6 +52,31 @@ import { attachTerminal, openProjectShell, openShell, openTerminal } from "./ter
 import "./terminal/restart";
 import { diffstatBar, parseDiffStat } from "./session/diffstat";
 import { closeDetail, detailOpenFor, generateSummary, toggleDetail } from "./session/detail";
+import {
+  moveGroup,
+  moveSelection,
+  onSelectionChange,
+  pushVisibleRows,
+  resetVisibleRows,
+  selectRow,
+  selectedSession,
+  targetSession,
+  visibleRows,
+} from "./session/selection";
+import {
+  actionButton,
+  buildActions,
+  deleteSession,
+  prBadge,
+  branchMatchesTitle,
+  projClass,
+  renamingId,
+  rowRefs,
+  setRenamingId,
+  sessionMenuItems,
+  updateRow,
+  type RowRefs,
+} from "./session/row";
 import {
   initTheme,
   setMode,
@@ -104,7 +127,6 @@ import {
   groups,
   hasSnapshot,
   layout,
-  maskDeleted,
   maskTitle,
   sectionNames,
   sectionView,
@@ -113,7 +135,6 @@ import {
   setStatusGrouping,
   setViewModePref,
   statusGrouping,
-  unmaskDeleted,
   unmaskTitle,
   viewMode,
 } from "./app/store";
@@ -218,9 +239,9 @@ sessionsEl.addEventListener("keydown", (e) => {
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     cycleSession(-1);
-  } else if (e.key === "Enter" && selectedId) {
+  } else if (e.key === "Enter" && selectedSession()) {
     e.preventDefault();
-    const s = findSession(selectedId);
+    const s = findSession(selectedSession()!);
     if (s) void openTerminal(s);
   }
 });
@@ -231,12 +252,13 @@ sessionsEl.addEventListener("keydown", (e) => {
 function cycleSession(delta: number): void {
   // Seed the cursor from the active terminal so the first press moves relative
   // to what's on screen, not from the top of the list.
-  if (!selectedId) {
+  if (!selectedSession()) {
     const cur = targetSession();
     if (cur) selectRow(cur.id);
   }
   moveSelection(delta);
-  const s = selectedId ? findSession(selectedId) : undefined;
+  const cursor = selectedSession();
+  const s = cursor ? findSession(cursor) : undefined;
   if (s) void openTerminal(s);
 }
 
@@ -366,7 +388,6 @@ makeResizable({
 // the bare project id; in section view it's scoped to the section (see
 // `sectionCreateKey`) so the same project across sections opens independently.
 let newSessionProject: string | null = null;
-let renamingId: string | null = null; // session id being renamed inline
 let topInput: "add" | "scan" | null = null; // sidebar-top path input mode
 // Project the session list is filtered to (toggled from the projects rail), or
 // null for "all projects". Composes with whichever grouping is active.
@@ -419,379 +440,6 @@ function headerRule(): HTMLSpanElement {
   return rule;
 }
 
-// ------------------------------------------------- keyboard selection model
-
-// Keyboard cursor for the sidebar (the TUI's tree cursor). Session ids of
-// visible rows, one array per rendered group, rebuilt on every full render.
-let selectedId: string | null = null;
-let visibleGroups: string[][] = [];
-
-function updateSelectionClasses(): void {
-  for (const [id, refs] of rowRefs) {
-    const sel = id === selectedId;
-    refs.row.classList.toggle("selected", sel);
-    refs.row.setAttribute("aria-selected", sel ? "true" : "false");
-  }
-  // The listbox tracks its cursor via aria-activedescendant, so assistive tech
-  // follows the same selectedId the keyboard chords move.
-  sessionsEl.setAttribute(
-    "aria-activedescendant",
-    selectedId ? `row-${selectedId}` : "",
-  );
-  // Board cards share the sidebar's selection model.
-  for (const [id, card] of boardCardRefs) {
-    card.classList.toggle("selected", id === selectedId);
-  }
-  if (selectedId) {
-    rowRefs.get(selectedId)?.row.scrollIntoView({ block: "nearest" });
-  }
-}
-
-function selectRow(id: string | null): void {
-  selectedId = id;
-  updateSelectionClasses();
-}
-
-function moveSelection(delta: number): void {
-  const flat = visibleGroups.flat();
-  if (!flat.length) return;
-  const idx = selectedId ? flat.indexOf(selectedId) : -1;
-  const next = idx === -1 ? (delta > 0 ? 0 : flat.length - 1) : idx + delta;
-  selectRow(flat[Math.min(flat.length - 1, Math.max(0, next))]);
-}
-
-/** Jump to the first row of the next/previous group and show its terminal. */
-function moveGroup(dir: 1 | -1): void {
-  const nonEmpty = visibleGroups.filter((g) => g.length);
-  if (!nonEmpty.length) return;
-  const cur = nonEmpty.findIndex((g) => selectedId !== null && g.includes(selectedId));
-  const next = cur === -1 ? 0 : (cur + dir + nonEmpty.length) % nonEmpty.length;
-  const id = nonEmpty[next][0];
-  selectRow(id);
-  // Switching groups attaches the target session so the displayed terminal (and
-  // its `.active` highlight) follows the cursor, rather than leaving the old
-  // session shown/highlighted.
-  const s = findSession(id);
-  if (s) void openTerminal(s);
-}
-
-/** The session keyboard actions operate on: cursor first, attached tab second. */
-function targetSession(): SessionRow | undefined {
-  if (selectedId) {
-    const s = findSession(selectedId);
-    if (s) return s;
-  }
-  if (activeTerm()) {
-    for (const g of groups()) {
-      const s = g.sessions.find((x) => x.tmux_session_name === activeTerm());
-      if (s) return s;
-    }
-  }
-  return undefined;
-}
-
-/** Number of project-identity palette slots (--proj-0..--proj-7 in :root). */
-const PROJ_COLORS = 8;
-
-/** Deterministically hash a project_id to one of the PROJ_COLORS palette slots.
- *  FNV-1a over the id so the same project always maps to the same colour. */
-function projIndex(projectId: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < projectId.length; i++) {
-    h ^= projectId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0) % PROJ_COLORS;
-}
-
-/** CSS class (`proj-N`) carrying a project's identity colour via `--proj-color`.
- *  Consumers read `var(--proj-color)` — never an inline hex. */
-function projClass(projectId: string): string {
-  return `proj-${projIndex(projectId)}`;
-}
-
-/** Mirror each open tab's status glyph from the latest session snapshot. Tabs
- *  with no matching session (e.g. commander) keep their glyph hidden. */
-function actionButton(
-  label: string,
-  title: string,
-  onClick: () => void,
-): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.className = "row-action";
-  btn.textContent = label;
-  btn.title = title;
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onClick();
-  });
-  return btn;
-}
-
-/** Destructive actions require a second click within 2.5s. */
-function confirmButton(
-  label: string,
-  title: string,
-  onConfirm: () => void,
-): HTMLButtonElement {
-  const btn = actionButton(label, title, () => {
-    if (btn.classList.contains("confirm")) {
-      onConfirm();
-    } else {
-      btn.classList.add("confirm");
-      btn.textContent = "sure?";
-      setTimeout(() => {
-        btn.classList.remove("confirm");
-        btn.textContent = label;
-      }, 2500);
-    }
-  });
-  return btn;
-}
-
-/** Re-fetch the sidebar snapshot now instead of waiting for the 2s tick. */
-function deleteSession(s: SessionRow): void {
-  closeTerminal(s.tmux_session_name);
-  maskDeleted(s.id);
-  for (const g of groups()) g.sessions = g.sessions.filter((row) => row.id !== s.id);
-  const buckets = sections();
-  if (buckets) for (const b of buckets) b.session_ids = b.session_ids.filter((id) => id !== s.id);
-  renderSidebar();
-  renderBoard();
-  updateTitleBarCounts();
-  invoke("delete_session", { id: s.id })
-    .then(() => refreshNow()) // a fresh snapshot confirms absence and clears the mask
-    .catch((e) => {
-      unmaskDeleted(s.id); // failed: un-mask so the row returns
-      actionErrorToast("delete_session", e);
-      void refreshNow();
-    });
-}
-
-type RowRefs = {
-  row: HTMLDivElement;
-  main: HTMLDivElement;
-  actions: HTMLDivElement;
-  status: string;
-  session: SessionRow;
-};
-
-const rowRefs = new Map<string, RowRefs>(); // keyed by session id
-
-function buildActions(s: SessionRow): HTMLDivElement {
-  const actions = document.createElement("div");
-  actions.className = "row-actions";
-  actions.appendChild(actionButton("ⓘ", "Session details", () => toggleDetail(s)));
-  actions.appendChild(actionButton("±", "Review diff", () => void openReview(s.id, s.title)));
-  if (s.status === "stopped") {
-    actions.appendChild(
-      actionButton(
-        "▶",
-        s.hibernated ? "Wake session" : "Restart session",
-        () => void lifecycle("restart_session", s.id),
-      ),
-    );
-  }
-  if (s.status === "running") {
-    actions.appendChild(
-      confirmButton("■", "Stop session", () => void lifecycle("kill_session", s.id)),
-    );
-  }
-  actions.appendChild(
-    confirmButton("✕", "Delete session (removes worktree + tmux, keeps the branch)", () => deleteSession(s)),
-  );
-  return actions;
-}
-
-/** PR badge: number colored by state, ✓/✗ review decision, draft styling. */
-function prBadge(s: SessionRow): HTMLSpanElement | null {
-  if (s.pr_number == null) return null;
-  const badge = document.createElement("span");
-  badge.className = `pr-badge pr-${s.pr_state ?? "open"}`;
-  if (s.pr_draft) badge.classList.add("pr-draft");
-  let text = `#${s.pr_number}`;
-  if (s.review_decision === "approved") text += " ✓";
-  if (s.review_decision === "changes_requested") text += " ✗";
-  badge.textContent = text;
-  badge.title =
-    `PR #${s.pr_number} — ${s.pr_draft ? "draft " : ""}${s.pr_state ?? "open"}` +
-    (s.review_decision ? `, ${s.review_decision.replace(/_/g, " ")}` : "") +
-    (s.pr_labels.length ? `\nLabels: ${s.pr_labels.join(", ")}` : "");
-  return badge;
-}
-
-/** True when the branch is just a slug of the title (the common case), so it
- *  carries no information worth its own column. */
-function branchMatchesTitle(title: string, branch: string): boolean {
-  const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug(title) === slug(branch);
-}
-
-/** Rebuild the inner content of a row's main span (cheap; no input state).
- *  `actions` is the row's persistent hover-action element (see RowRefs): it's
- *  re-appended at the sub-line's trailing edge so confirm state survives. */
-function fillRowMain(main: HTMLDivElement, s: SessionRow, actions: HTMLDivElement): void {
-  main.innerHTML = "";
-
-  // Top line: liveness dot · name · PR badge · right-side chips. The dot is the
-  // fast-scan colour at the row's fixed left edge; the labeled word (Running /
-  // Done / …) lives on the sub-line so the title gets the full line width.
-  const line = document.createElement("div");
-  line.className = "row-line";
-  const title = document.createElement("span");
-  title.className = "title";
-  title.textContent = s.title;
-  title.title = `Branch: ${s.branch}`;
-  line.append(statusGlyph(s), title);
-
-  const badge = prBadge(s);
-  if (badge) line.appendChild(badge);
-
-  // Right-side chips: ✎ pending comments, ⚠ pull blocked (project-level auto
-  // -pull block). Pushed right by .row-chips margin-left:auto.
-  const chips = document.createElement("span");
-  chips.className = "row-chips";
-  // SessionRow carries only has_pending_comments (no count), so the chip reads
-  // "✎ Comments" rather than spelling out a number.
-  if (s.has_pending_comments) {
-    chips.appendChild(commentsChip(undefined, "Has pending review comments"));
-  }
-  // pull_blocked is a project-level field; surface ⚠ on rows of a blocked
-  // project. (No session-level blocked flag exists — see recon risks.)
-  const blocked = groupOf(s.id)?.pull_blocked;
-  if (blocked) {
-    chips.appendChild(pullBlockedChip(`Auto-pull blocked: ${blocked}`));
-  }
-  if (chips.childElementCount) line.appendChild(chips);
-
-  // Sub-line: the labeled status chip (word-only here — the leading dot already
-  // carries shape+colour, so the chip's own dot is hidden by a row-scoped rule),
-  // plus the branch when it diverges from the title. SessionRow carries no
-  // diff_stat (only SessionDetail does, and we avoid per-row fetches), so the
-  // prototype's "+adds −dels" beside the chip has no source on a row.
-  const sub = document.createElement("div");
-  sub.className = "row-sub";
-  sub.appendChild(sessionStatusChip(s));
-  if (!branchMatchesTitle(s.title, s.branch)) {
-    const branch = document.createElement("span");
-    branch.className = "meta";
-    branch.textContent = s.branch;
-    sub.append(branch);
-  }
-  // Hover actions ride the sub-line (in line with the status chip) so revealing
-  // them doesn't add a line and shift the rows below.
-  sub.appendChild(actions);
-  main.append(line, sub);
-}
-
-function sessionMenuItems(refs: RowRefs): MenuItem[] {
-  const s = refs.session;
-  // Core actions, in the order from the design brief.
-  const items: MenuItem[] = [
-    { label: "Attach", shortcut: kb("select"), action: () => void openTerminal(s) },
-    { label: "Open shell", shortcut: kb("select_shell"), action: () => void openShell(s) },
-    { label: "Review diff", shortcut: kb("open_review_diff"), action: () => void openReview(s.id, s.title) },
-    {
-      label: "Rename…",
-      shortcut: kb("rename_session"),
-      action: () => {
-        renamingId = s.id;
-        renderSidebar();
-      },
-    },
-    "separator",
-    {
-      label: s.hibernated ? "Wake" : "Restart",
-      shortcut: kb("restart_session"),
-      action: () => void lifecycle("restart_session", s.id),
-    },
-    {
-      label: "Restart fresh",
-      action: () => {
-        void invoke("restart_fresh", { tmuxSession: s.tmux_session_name })
-          .catch((e) => toast(`restart_fresh failed: ${e}`, "error"))
-          .finally(() => void refreshNow());
-      },
-    },
-    {
-      label: "Stop",
-      sublabel: "stops the process, keeps the worktree",
-      warning: true,
-      action: () => void lifecycle("kill_session", s.id),
-    },
-    "separator",
-    {
-      label: "Delete session…",
-      sublabel: "removes worktree + tmux, keeps the branch",
-      danger: true,
-      shortcut: kb("delete_session"),
-      action: () => {
-        void deleteSessionDialog(s.title, s.branch).then((ok) => {
-          if (ok) deleteSession(s);
-        });
-      },
-    },
-  ];
-
-  // Secondary capabilities, preserved below a separator so the rework doesn't
-  // drop existing functionality (details, editor, PR, cascade, sections).
-  const extras: MenuItem[] = [
-    { label: "Details", action: () => toggleDetail(s) },
-    { label: "Open in editor", shortcut: kb("open_in_editor"), action: () => void lifecycle("open_in_editor", s.id) },
-  ];
-  if (s.pr_url) {
-    const url = s.pr_url;
-    extras.push({
-      label: `Open PR #${s.pr_number}`,
-      shortcut: kb("open_pull_request"),
-      action: () => void invoke("open_external", { url }),
-    });
-  }
-  extras.push({
-    label: "Cascade-merge main → stack",
-    shortcut: kb("cascade_merge_main"),
-    action: () => void invokeToast("cascade_merge", { id: s.id }),
-  });
-  extras.push({
-    label: "Push stack to origin",
-    shortcut: kb("push_stack"),
-    action: () => void invokeToast("push_stack", { id: s.id }),
-  });
-  if (s.status === "cascade_paused") {
-    extras.push({
-      label: "Resume cascade",
-      shortcut: kb("cascade_resume"),
-      action: () => void invokeToast("cascade_resume", {}),
-    });
-    extras.push({
-      label: "Abandon cascade",
-      danger: true,
-      shortcut: kb("cascade_abandon"),
-      action: () => void invokeToast("cascade_abandon", {}),
-    });
-  }
-  if (sectionNames().length) {
-    for (const name of sectionNames()) {
-      if (name !== s.current_section) {
-        extras.push({
-          label: `Move to section: ${name}`,
-          action: () => void lifecycleArgs("move_to_section", { id: s.id, section: name }),
-        });
-      }
-    }
-    if (s.current_section) {
-      extras.push({
-        label: "Clear section pin",
-        action: () => void lifecycleArgs("move_to_section", { id: s.id, section: null }),
-      });
-    }
-  }
-
-  items.push("separator", ...extras);
-  return items;
-}
-
-/** Inline rename input shown in place of the row's title. */
 function renderRenameInput(s: SessionRow): HTMLInputElement {
   const input = noTextAssist(document.createElement("input"));
   input.className = "rename-input";
@@ -800,12 +448,12 @@ function renderRenameInput(s: SessionRow): HTMLInputElement {
   input.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") {
-      renamingId = null;
+      setRenamingId(null);
       renderSidebar();
     }
     if (e.key === "Enter" && input.value.trim()) {
       const title = input.value.trim();
-      renamingId = null;
+      setRenamingId(null);
       // Optimistic: show the new title immediately; the mask clears once a
       // snapshot carries the new title (see applyPendingOverlays).
       maskTitle(s.id, title);
@@ -844,7 +492,7 @@ function renderSessionRow(s: SessionRow): HTMLDivElement {
   const refs: RowRefs = { row, main, actions: buildActions(s), status: s.status, session: s };
   rowRefs.set(s.id, refs);
 
-  if (renamingId === s.id) {
+  if (renamingId() === s.id) {
     main.appendChild(renderRenameInput(s));
     row.append(main, refs.actions);
     return row;
@@ -967,25 +615,6 @@ function clearDropTargets(): void {
 }
 
 /** Refresh a row's dynamic bits without rebuilding it (preserves hover/confirm state). */
-function updateRow(refs: RowRefs, s: SessionRow): void {
-  refs.session = s;
-  if (renamingId === s.id) return; // don't clobber the rename input
-  if (refs.status !== s.status) {
-    refs.actions = buildActions(s);
-    refs.status = s.status;
-  }
-  fillRowMain(refs.main, s, refs.actions);
-  refs.row.classList.toggle("active", s.tmux_session_name === activeTerm());
-  refs.row.classList.toggle("attached", terminals.has(s.tmux_session_name));
-  const sel = s.id === selectedId;
-  refs.row.classList.toggle("selected", sel);
-  refs.row.setAttribute("aria-selected", sel ? "true" : "false");
-  refs.row.setAttribute("aria-label", `${s.title} — ${sessionStateWord(s, sessionStateKey(s))}`);
-  if (sel) sessionsEl.setAttribute("aria-activedescendant", refs.row.id);
-}
-
-/** Launch a new session in a project, remembering the chosen harness (if any)
- *  and refreshing once the backend responds. Shared by both create entry points. */
 function renderCreateInput(group: ProjectGroup): HTMLDivElement {
   const wrap = document.createElement("div");
   wrap.className = "create-input";
@@ -1416,7 +1045,7 @@ function renderSections(buckets: SectionBucket[]): void {
         }
       }
       renderRows(rows);
-      visibleGroups.push(rows.map((s) => s.id));
+      pushVisibleRows(rows.map((s) => s.id));
     }
   });
 }
@@ -1454,7 +1083,7 @@ function renderSidebar(): void {
     groups()
       .map((g) => `${g.id}@${g.pull_blocked}:${g.sessions.map((s) => s.id).join(",")}`)
       .join("|") +
-    `#${newSessionProject}#${renamingId}#${topInput}#${viewMode()}#${projectFilter}` +
+    `#${newSessionProject}#${renamingId()}#${topInput}#${viewMode()}#${projectFilter}` +
     `#${sections()?.map((b) => `${b.name}=${b.session_ids.join(",")}`).join("|") ?? ""}` +
     // Status grouping: tier membership must force a rebuild (a status flip has
     // to move the row between tiers, which updateRow alone can't do).
@@ -1473,7 +1102,7 @@ function renderSidebar(): void {
 
   sidebarSignature = signature;
   rowRefs.clear();
-  visibleGroups = [];
+  resetVisibleRows();
   sessionsEl.innerHTML = "";
   if (topInput) {
     sessionsEl.appendChild(renderTopInput(topInput));
@@ -1555,13 +1184,26 @@ function renderSidebar(): void {
       continue;
     }
     renderRows(group.sessions);
-    visibleGroups.push(group.sessions.map((s) => s.id));
+    pushVisibleRows(group.sessions.map((s) => s.id));
   }
 }
 
 // The sidebar redraws on request rather than by direct call, so a terminal
 // exit or a board action can ask for it without importing it.
 registerView("sidebar", renderSidebar);
+
+// The sidebar draws the keyboard cursor on its rows, and mirrors it to the
+// listbox's aria-activedescendant so assistive tech follows the same row.
+onSelectionChange(() => {
+  const id = selectedSession();
+  for (const [rowId, refs] of rowRefs) {
+    const sel = rowId === id;
+    refs.row.classList.toggle("selected", sel);
+    refs.row.setAttribute("aria-selected", sel ? "true" : "false");
+  }
+  sessionsEl.setAttribute("aria-activedescendant", id ? `row-${id}` : "");
+  if (id) rowRefs.get(id)?.row.scrollIntoView({ block: "nearest" });
+});
 
 /** Full-width create button for groupings without project headers (section and
  *  status views): pick any project (incl. sessionless ones), then a title. */
@@ -1636,7 +1278,7 @@ function renderStatusTiers(): void {
         }
       }
       renderRows(rows);
-      visibleGroups.push(rows.map((s) => s.id));
+      pushVisibleRows(rows.map((s) => s.id));
     }
   }
 }
@@ -1767,7 +1409,7 @@ function attentionCount(): number {
 function jumpToAttention(): void {
   const queue = attentionSessions();
   if (!queue.length) return;
-  const cur = selectedId ? queue.findIndex((s) => s.id === selectedId) : -1;
+  const cur = selectedSession() ? queue.findIndex((s) => s.id === selectedSession()) : -1;
   const next = queue[(cur + 1) % queue.length];
   setLayout("console");
   selectRow(next.id);
@@ -2062,7 +1704,7 @@ function renderAgentCard(s: SessionRow): HTMLDivElement {
   // State class drives the 3px left accent border (--state-color); in lockstep
   // with the status chip's colour.
   card.className = `agent-card ${boardStateClass(s)}`;
-  card.classList.toggle("selected", selectedId === s.id);
+  card.classList.toggle("selected", selectedSession() === s.id);
   boardCardRefs.set(s.id, card);
 
   // The card is the primary keyboard target: a role=button tile in the board's
@@ -2314,7 +1956,7 @@ function boardCards(): HTMLDivElement[] {
 function updateBoardRoving(): void {
   const cards = boardCards();
   const chosen =
-    (selectedId ? boardCardRefs.get(selectedId) : undefined) ??
+    (selectedSession() ? boardCardRefs.get(selectedSession()!) : undefined) ??
     (boardFocusId ? boardCardRefs.get(boardFocusId) : undefined) ??
     cards[0];
   for (const c of cards) c.tabIndex = c === chosen ? 0 : -1;
@@ -2637,6 +2279,12 @@ function renderBoard(): void {
 
 registerView("board", renderBoard);
 
+// Board cards draw the same cursor the sidebar rows do.
+onSelectionChange(() => {
+  const id = selectedSession();
+  for (const [cardId, card] of boardCardRefs) card.classList.toggle("selected", cardId === id);
+});
+
 // ---------------------------------------------------------------- palette
 
 registerPaletteProvider(() =>
@@ -2758,14 +2406,14 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
   navigate_first: {
     label: "Jump to first session",
     run: () => {
-      const flat = visibleGroups.flat();
+      const flat = visibleRows().flat();
       if (flat.length) selectRow(flat[0]);
     },
   },
   navigate_last: {
     label: "Jump to last session",
     run: () => {
-      const flat = visibleGroups.flat();
+      const flat = visibleRows().flat();
       if (flat.length) selectRow(flat[flat.length - 1]);
     },
   },
@@ -2835,7 +2483,7 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
     run: () => {
       const s = targetSession();
       if (!s) return;
-      renamingId = s.id;
+      setRenamingId(s.id);
       renderSidebar();
     },
   },
@@ -2967,11 +2615,6 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
 // redundant "Shift-" prefix and de-dupe so each key shows once.
 /** Formatted glyphs for an action's primary config binding, for menu/palette
  *  shortcut hints. Undefined when the action is unbound or unparseable. */
-function kb(action: string): string | undefined {
-  const first = (loadedBindings[action] ?? [])[0];
-  return (first && formatBinding(first)) || undefined;
-}
-
 function helpKeyLabel(keys: string[]): string {
   const seen = new Set(keys.map((k) => k.replace(/^Shift-(?=\S$)/, "")));
   return [...seen].join(", ");
@@ -3029,7 +2672,7 @@ document.addEventListener("keydown", (e) => {
     closeDetail();
     return;
   }
-  if (e.key === "Escape" && selectedId && !keyOverlayOpen() && !(e.target as HTMLElement).closest(".xterm")) {
+  if (e.key === "Escape" && selectedSession() && !keyOverlayOpen() && !(e.target as HTMLElement).closest(".xterm")) {
     selectRow(null);
   }
 });
