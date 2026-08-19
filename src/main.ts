@@ -10,7 +10,7 @@ import { openExplorer, closeExplorer, isExplorerOpen } from "./fileExplorer";
 import { openMarkdownViewer, closeMarkdownViewer, isMarkdownViewerOpen } from "./markdownViewer";
 import { toast, confirmDialog, promptDialog } from "./toast";
 import { makeResizable, adjustPanelWidth } from "./resize";
-import { showContextMenu, MenuItem } from "./menu";
+import { showContextMenu } from "./menu";
 import { kb } from "./keys";
 import { registerPaletteProvider, togglePalette } from "./palette";
 import { toggleHelp, setHelpKeybindings } from "./help";
@@ -22,7 +22,7 @@ import {
   rebindActions,
 } from "./keys";
 import { openSettings } from "./settings";
-import { commentsChip, pullBlockedChip, stackChip, stateChipInfo, STATUS_TIERS, type StatusTier } from "./status";
+import { commentsChip, pullBlockedChip, stateChipInfo, STATUS_TIERS } from "./status";
 import { noTextAssist } from "./dom";
 import { draggable } from "./drag";
 import {
@@ -31,7 +31,7 @@ import {
   sessionStatusChip,
   sessionTier,
 } from "./session/glyph";
-import { createSessionInProject, projectPickerItems, startSession } from "./session/create";
+import { projectPickerItems } from "./session/create";
 import {
   activeTerm,
   focusedSlot,
@@ -48,33 +48,36 @@ import {
   updateDockHeader,
 } from "./terminal/surface";
 import { activateTabByIndex, cycleTab } from "./terminal/tabs";
-import { attachTerminal, openProjectShell, openShell, openTerminal } from "./terminal/attach";
+import { attachTerminal, openShell, openTerminal } from "./terminal/attach";
 import "./terminal/restart";
 import { diffstatBar, parseDiffStat } from "./session/diffstat";
 import { closeDetail, detailOpenFor, generateSummary, toggleDetail } from "./session/detail";
+import { renderSidebar } from "./sidebar/index";
+import {
+  cycleViewMode,
+  expandGroup,
+  sectionCreateKey,
+  setNewSessionProject,
+  setTopInput,
+  toggleCollapsed,
+} from "./sidebar/state";
+import { deleteMergedSessions } from "./sidebar/menus";
 import {
   moveGroup,
   moveSelection,
   onSelectionChange,
-  pushVisibleRows,
-  resetVisibleRows,
   selectRow,
   selectedSession,
   targetSession,
   visibleRows,
 } from "./session/selection";
 import {
-  actionButton,
-  buildActions,
   deleteSession,
   prBadge,
   branchMatchesTitle,
   projClass,
-  renamingId,
-  rowRefs,
   setRenamingId,
   sessionMenuItems,
-  updateRow,
   type RowRefs,
 } from "./session/row";
 import {
@@ -89,13 +92,10 @@ import {
   type Theme,
 } from "./theme";
 import { openThemeModal } from "./themeModal";
-import { createHarnessPicker } from "./harnessPicker";
 import { featurePalette, featureActions, onFeatureChange } from "./features";
 import "./featureList";
 import type {
   SessionRow,
-  ProjectGroup,
-  SectionBucket,
   Snapshot,
   SessionDetail,
 } from "./app/types";
@@ -127,16 +127,11 @@ import {
   groups,
   hasSnapshot,
   layout,
-  maskTitle,
   sectionNames,
   sectionView,
   sections,
   setLayoutPref,
-  setStatusGrouping,
-  setViewModePref,
   statusGrouping,
-  unmaskTitle,
-  viewMode,
 } from "./app/store";
 import { actionErrorToast, invokeToast, lifecycle, lifecycleArgs, refreshNow } from "./app/actions";
 
@@ -384,948 +379,6 @@ makeResizable({
 
 // ----------------------------------------------------------------- sidebar
 
-// Key of the project header with an open create-input. In project view this is
-// the bare project id; in section view it's scoped to the section (see
-// `sectionCreateKey`) so the same project across sections opens independently.
-let newSessionProject: string | null = null;
-let topInput: "add" | "scan" | null = null; // sidebar-top path input mode
-// Project the session list is filtered to (toggled from the projects rail), or
-// null for "all projects". Composes with whichever grouping is active.
-let projectFilter: string | null = null;
-
-// Board layout: which cards are visible (filter pills) + a name search. Mirrors
-// projectFilter's "local UI state, re-render on change" shape.
-let boardSearch = "";
-// Project multiselect filter: the set of selected project ids, or null for "all
-// projects" (the default). Cards whose project isn't selected are hidden across
-// every section column.
-let boardProjectFilter: Set<string> | null = null;
-// Hide section columns with zero visible cards (persisted).
-let hideEmptyColumns = localStorage.getItem("cc-board-hide-empty") === "1";
-
-/** Create-input key for a project sub-header inside a section. The `sect:`
- *  prefix can't collide with a bare project uuid (project-view key). */
-const sectionCreateKey = (section: string, projectId: string): string =>
-  `sect:${section}\x00${projectId}`;
-
-// Collapsed sidebar groups ("proj:<id>" / "sect:<name>"), persisted.
-const collapsed = new Set<string>(
-  JSON.parse(localStorage.getItem("cc-collapsed") ?? "[]") as string[],
-);
-
-function toggleCollapsed(key: string): void {
-  if (collapsed.has(key)) collapsed.delete(key);
-  else collapsed.add(key);
-  localStorage.setItem("cc-collapsed", JSON.stringify([...collapsed]));
-  renderSidebar();
-}
-
-/** Chevron + collapse-toggling click handler for a group header. */
-function makeCollapsible(header: HTMLDivElement, name: HTMLSpanElement, key: string): boolean {
-  const isCollapsed = collapsed.has(key);
-  const chevron = document.createElement("span");
-  chevron.className = "chevron";
-  chevron.textContent = isCollapsed ? "▸ " : "▾ ";
-  name.prepend(chevron);
-  header.classList.add("collapsible");
-  header.addEventListener("click", () => toggleCollapsed(key));
-  return isCollapsed;
-}
-
-/** A thin subtle hairline that grows to fill the rest of a group header row
- *  (after the name + count), trailing off toward the edge. */
-function headerRule(): HTMLSpanElement {
-  const rule = document.createElement("span");
-  rule.className = "header-rule";
-  return rule;
-}
-
-function renderRenameInput(s: SessionRow): HTMLInputElement {
-  const input = noTextAssist(document.createElement("input"));
-  input.className = "rename-input";
-  input.value = s.title;
-  input.addEventListener("click", (e) => e.stopPropagation());
-  input.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Escape") {
-      setRenamingId(null);
-      renderSidebar();
-    }
-    if (e.key === "Enter" && input.value.trim()) {
-      const title = input.value.trim();
-      setRenamingId(null);
-      // Optimistic: show the new title immediately; the mask clears once a
-      // snapshot carries the new title (see applyPendingOverlays).
-      maskTitle(s.id, title);
-      s.title = title;
-      invoke("rename_session", { id: s.id, title })
-        .then(() => refreshNow())
-        .catch((err) => {
-          unmaskTitle(s.id); // failed: un-mask so the old title returns
-          toast(`rename failed: ${err}`, "error");
-          void refreshNow();
-        });
-      renderSidebar();
-    }
-  });
-  setTimeout(() => {
-    input.focus();
-    input.select();
-  }, 0);
-  return input;
-}
-
-function renderSessionRow(s: SessionRow): HTMLDivElement {
-  const row = document.createElement("div");
-  row.className = "session-row";
-  // Option in the #sessions listbox: keyboard cursor is tracked by the
-  // container's aria-activedescendant (updateSelectionClasses), so the row
-  // needs a stable DOM id and the option role. aria-selected + aria-label are
-  // set from state in updateRow.
-  row.id = `row-${s.id}`;
-  row.setAttribute("role", "option");
-  if (s.stacked_child) row.classList.add("stacked");
-
-  const main = document.createElement("div");
-  main.className = "row-main";
-
-  const refs: RowRefs = { row, main, actions: buildActions(s), status: s.status, session: s };
-  rowRefs.set(s.id, refs);
-
-  if (renamingId() === s.id) {
-    main.appendChild(renderRenameInput(s));
-    row.append(main, refs.actions);
-    return row;
-  }
-
-  row.append(main); // actions land inside main's sub-line via fillRowMain
-  row.addEventListener("click", () => {
-    selectRow(refs.session.id);
-    void openTerminal(refs.session);
-  });
-  row.addEventListener("contextmenu", (e) => showContextMenu(e, sessionMenuItems(refs)));
-  // Draggable onto a section header to re-pin the session (section view only;
-  // headers are annotated with dataset.dropSection in renderSections). Not wired
-  // in rename mode: that branch returns above.
-  row.dataset.id = s.id;
-  draggable(row, () => {
-    row.classList.add("dragging");
-    return {
-      onMove(x, y) {
-        clearDropTargets();
-        const header = document.elementFromPoint(x, y)?.closest<HTMLElement>(".project-header");
-        if (header?.dataset.dropSection !== undefined) header.classList.add("drop-target");
-      },
-      onDrop(x, y) {
-        const header = document.elementFromPoint(x, y)?.closest<HTMLElement>(".project-header");
-        if (header?.dataset.dropSection === undefined) return;
-        // dropSection is "" on the index-0 "In Progress" catch-all: clear the pin.
-        const target = header.dataset.dropSection || null;
-        const id = refs.session.id;
-        if ((findSession(id)?.current_section ?? null) === target) return; // no-op drop
-        void lifecycleArgs("move_to_section", { id, section: target });
-      },
-      onEnd() {
-        row.classList.remove("dragging");
-        clearDropTargets();
-      },
-    };
-  });
-  updateRow(refs, s);
-  return row;
-}
-
-type StackUnit =
-  | { kind: "single"; session: SessionRow }
-  | { kind: "stack"; parent: SessionRow; children: SessionRow[] };
-
-/** Infer cascade stacks from an ordered row list: a non-stacked parent followed
- *  by its consecutive `stacked_child` rows forms one stack (the backend keeps a
- *  stack root + its children contiguous). Children with no preceding parent
- *  (can't happen within one project, but guard anyway) fall back to singles. */
-function groupStacks(rows: SessionRow[]): StackUnit[] {
-  const units: StackUnit[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const s = rows[i];
-    if (s.stacked_child) {
-      units.push({ kind: "single", session: s }); // orphan child — render flat
-      continue;
-    }
-    const children: SessionRow[] = [];
-    while (i + 1 < rows.length && rows[i + 1].stacked_child) {
-      children.push(rows[++i]);
-    }
-    units.push(children.length ? { kind: "stack", parent: s, children } : { kind: "single", session: s });
-  }
-  return units;
-}
-
-/** A cascade stack: bordered group (faint mauve tint) with a header carrying the
- *  stack name (parent title) and merge/push/⋯ actions, then the parent +
- *  indented child rows (each child gets a project-color left border). */
-function renderStack(parent: SessionRow, children: SessionRow[]): HTMLDivElement {
-  const wrap = document.createElement("div");
-  wrap.className = `stack ${projClass(parent.project_id)}`;
-
-  const header = document.createElement("div");
-  header.className = "stack-header";
-  // The ⌗ glyph becomes the labeled "⌗ Stack of N" chip (parent + children),
-  // then the parent title names which stack this is.
-  const chip = stackChip(children.length + 1, "Cascade stack");
-  const name = document.createElement("span");
-  name.className = "stack-name";
-  name.textContent = parent.title;
-  name.title = parent.title;
-  header.append(chip, name);
-
-  const actions = document.createElement("span");
-  actions.className = "stack-actions";
-  const merge = actionButton("⛙", "Cascade-merge main → stack", () =>
-    void invokeToast("cascade_merge", { id: parent.id }),
-  );
-  merge.classList.add("stack-merge");
-  const push = actionButton("↑", "Push stack to origin", () =>
-    void invokeToast("push_stack", { id: parent.id }),
-  );
-  push.classList.add("stack-push");
-  // ⋯ opens the session menu (resume/abandon live there, gated on cascade_paused)
-  // positioned at the click; can't reuse actionButton, which swallows the event.
-  const more = document.createElement("button");
-  more.className = "row-action";
-  more.textContent = "⋯";
-  more.title = "Stack actions";
-  more.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const refs = rowRefs.get(parent.id);
-    if (refs) showContextMenu(e, sessionMenuItems(refs));
-  });
-  actions.append(merge, push, more);
-  header.append(actions);
-
-  wrap.append(header, renderSessionRow(parent));
-  for (const c of children) wrap.append(renderSessionRow(c));
-  return wrap;
-}
-
-/** Drop the section-header highlight from any header still showing it. */
-function clearDropTargets(): void {
-  for (const el of sessionsEl.querySelectorAll(".project-header.drop-target")) {
-    el.classList.remove("drop-target");
-  }
-}
-
-/** Refresh a row's dynamic bits without rebuilding it (preserves hover/confirm state). */
-function renderCreateInput(group: ProjectGroup): HTMLDivElement {
-  const wrap = document.createElement("div");
-  wrap.className = "create-input";
-  const row = document.createElement("div");
-  row.className = "create-input-row";
-  const input = noTextAssist(document.createElement("input"));
-  input.placeholder = "new session title…";
-  const picker = createHarnessPicker(group.repo_path);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      // A stray keypress while the harness menu is open closes it, not the input.
-      if (picker.isOpen()) {
-        picker.closeMenu();
-        return;
-      }
-      newSessionProject = null;
-      renderSidebar();
-    }
-    if (e.key === "ArrowDown" && !picker.isOpen()) {
-      e.preventDefault();
-      picker.openMenu();
-    }
-    if (e.key === "Enter" && input.value.trim()) {
-      const title = input.value.trim();
-      const program = picker.selected() || undefined;
-      picker.closeMenu(); // drop the picker's document listener before the re-render
-      newSessionProject = null;
-      input.disabled = true;
-      startSession(group, title, program);
-    }
-  });
-  row.append(input, picker.element);
-  wrap.appendChild(row);
-  setTimeout(() => input.focus(), 0);
-  return wrap;
-}
-
-let sidebarSignature = "";
-
-/**
- * Rebuild the sidebar DOM only when its structure (projects, session set/order,
- * open create-input) changes; otherwise patch rows in place. A periodic full
- * rebuild would wipe the create-input text and confirm-button state every tick.
- */
-function projectMenuItems(group: ProjectGroup, createKey: string = group.id): MenuItem[] {
-  return [
-    {
-      label: "New session…",
-      shortcut: kb("new_session"),
-      action: () => {
-        newSessionProject = createKey;
-        renderSidebar();
-      },
-    },
-    { label: "Project shell", action: () => void openProjectShell(group) },
-    "separator",
-    {
-      label: "Remove project (deletes all its sessions)",
-      danger: true,
-      shortcut: kb("remove_project"),
-      action: () => {
-        void confirmDialog(
-          `Remove project "${group.name}" and all ${group.sessions.length} session(s)?\nWorktrees and tmux sessions will be removed.`,
-          "Remove",
-        ).then((ok) => {
-          if (ok) void lifecycle("remove_project", group.id);
-        });
-      },
-    },
-  ];
-}
-
-/** Longest common prefix of a list of strings (drives Tab completion). */
-function longestCommonPrefix(strings: string[]): string {
-  if (!strings.length) return "";
-  let prefix = strings[0];
-  for (const s of strings.slice(1)) {
-    while (prefix && !s.startsWith(prefix)) prefix = prefix.slice(0, -1);
-    if (!prefix) break;
-  }
-  return prefix;
-}
-
-/** Path input at the top of the sidebar for add-project / scan-directory, with
- *  a live directory-completion dropdown (Tab → common prefix, ↑/↓ to pick,
- *  Enter on a match drills in, Enter on free text commits) and a native folder
- *  picker via "Browse…". Seeded with `~/` so the first listing shows $HOME. */
-function renderTopInput(mode: "add" | "scan"): HTMLDivElement {
-  const wrap = document.createElement("div");
-  wrap.className = "create-input path-input";
-  const row = document.createElement("div");
-  row.className = "path-input-row";
-  const input = noTextAssist(document.createElement("input"));
-  input.placeholder = mode === "add" ? "path to git repo…" : "directory to scan for repos…";
-  input.value = "~/";
-  const browse = document.createElement("button");
-  browse.className = "path-browse";
-  browse.textContent = "Browse…";
-  const listEl = document.createElement("div");
-  listEl.className = "path-completions";
-  row.append(input, browse);
-  wrap.append(row, listEl);
-
-  let completions: string[] = [];
-  let selected = -1; // -1 = nothing highlighted (Enter commits the typed value)
-  let debounce: number | undefined;
-
-  function renderCompletions(): void {
-    listEl.innerHTML = "";
-    completions.forEach((c, i) => {
-      const r = document.createElement("div");
-      r.className = "path-completion";
-      r.classList.toggle("selected", i === selected);
-      r.textContent = c;
-      // mousedown (not click) so the pick lands before the input's blur.
-      r.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        input.value = `${c}/`;
-        selected = -1;
-        void refresh();
-        input.focus();
-      });
-      listEl.appendChild(r);
-    });
-  }
-
-  async function refresh(): Promise<void> {
-    let next: string[];
-    try {
-      next = await invoke<string[]>("complete_path", { partial: input.value });
-    } catch {
-      next = [];
-    }
-    completions = next;
-    selected = completions.length ? Math.min(selected, completions.length - 1) : -1;
-    renderCompletions();
-  }
-
-  function commit(path: string): void {
-    topInput = null;
-    input.disabled = true;
-    const call =
-      mode === "add"
-        ? invoke("add_project", { path })
-        : invoke<{ added: number; skipped: number }>("scan_directory", { path }).then((r) =>
-            toast(`Scan complete: ${r.added} added, ${r.skipped} already present`),
-          );
-    call
-      .catch((err) => toast(`${mode === "add" ? "add project" : "scan"} failed: ${err}`, "error"))
-      .finally(() => void refreshNow());
-    renderSidebar();
-  }
-
-  input.addEventListener("input", () => {
-    selected = -1;
-    clearTimeout(debounce);
-    debounce = window.setTimeout(() => void refresh(), 100);
-  });
-
-  input.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Escape") {
-      topInput = null;
-      renderSidebar();
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (completions.length) {
-        selected = (selected + 1) % completions.length;
-        renderCompletions();
-      }
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (completions.length) {
-        selected = selected <= 0 ? completions.length - 1 : selected - 1;
-        renderCompletions();
-      }
-      return;
-    }
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const lcp = longestCommonPrefix(completions);
-      if (lcp && lcp.length > input.value.length) {
-        input.value = lcp;
-        void refresh();
-      }
-      return;
-    }
-    if (e.key === "Enter") {
-      // A highlighted row drills into that directory; otherwise commit the
-      // typed path (the "I typed the full path, just add it" case).
-      if (selected >= 0 && completions[selected]) {
-        input.value = `${completions[selected]}/`;
-        selected = -1;
-        void refresh();
-      } else if (input.value.trim()) {
-        commit(input.value.trim());
-      }
-    }
-  });
-
-  browse.addEventListener("click", () => {
-    void openFolderDialog({ directory: true }).then((picked) => {
-      if (typeof picked === "string") {
-        input.value = picked;
-        input.focus();
-        void refresh();
-      }
-    });
-  });
-
-  setTimeout(() => {
-    input.focus();
-    void refresh();
-  }, 0);
-  return wrap;
-}
-
-async function deleteMergedSessions(): Promise<void> {
-  let merged: [string, string][];
-  try {
-    merged = await invoke<[string, string][]>("merged_pr_sessions");
-  } catch (e) {
-    toast(`failed to list merged sessions: ${e}`, "error");
-    return;
-  }
-  if (!merged.length) {
-    toast("No sessions with merged PRs");
-    return;
-  }
-  const preview = merged
-    .slice(0, 8)
-    .map(([, branch]) => `  • ${branch}`)
-    .join("\n");
-  const more = merged.length > 8 ? `\n  … and ${merged.length - 8} more` : "";
-  const ok = await confirmDialog(
-    `Delete ${merged.length} session(s) with merged PRs?\n\n${preview}${more}\n\nThis removes their worktrees and branches.`,
-    "Delete all",
-  );
-  if (!ok) return;
-  for (const [id] of merged) {
-    const row = findSession(id);
-    if (row) {
-      deleteSession(row);
-    } else {
-      await invoke("delete_session", { id }).catch((e) => toast(`delete failed: ${e}`, "error"));
-    }
-  }
-}
-
-function sidebarMenuItems(): MenuItem[] {
-  return [
-    {
-      label: "Add project…",
-      shortcut: kb("new_project"),
-      action: () => {
-        topInput = "add";
-        renderSidebar();
-      },
-    },
-    {
-      label: "Scan directory for repos…",
-      shortcut: kb("scan_directory"),
-      action: () => {
-        topInput = "scan";
-        renderSidebar();
-      },
-    },
-    "separator",
-    { label: "Settings…", shortcut: kb("show_settings"), action: () => void openSettings() },
-    { label: "Help", shortcut: kb("show_help"), action: toggleHelp },
-    "separator",
-    {
-      label: "Delete merged-PR sessions…",
-      danger: true,
-      shortcut: kb("delete_merged_pr_sessions"),
-      action: () => void deleteMergedSessions(),
-    },
-  ];
-}
-
-/** Project list for the sidebar "New session…" picker. Sourced from `groups`,
- *  so it includes projects with no sessions — the one path to create a session
- *  for them in section views, where sessionless projects have no sub-header. */
-function applyViewMode(mode: string): void {
-  if ((mode === "sections" || mode === "section_stacks") && sectionNames().length === 0) {
-    mode = "project";
-  }
-  setViewModePref(mode);
-  renderSidebar();
-}
-
-function cycleViewMode(): void {
-  // Backend grouping modes, then the GUI-only Status stop. Section modes drop
-  // out of the cycle when no sections are configured.
-  const modes = sectionNames().length ? ["project", "sections", "section_stacks"] : ["project"];
-  if (statusGrouping()) {
-    // Status (GUI-only) is the cycle's last stop; leaving it restarts at the top.
-    setStatusGrouping(false);
-    applyViewMode(modes[0]);
-    return;
-  }
-  const idx = modes.indexOf(viewMode());
-  if (idx === modes.length - 1) {
-    setStatusGrouping(true);
-    return;
-  }
-  applyViewMode(modes[idx + 1]);
-}
-
-/** Switch grouping to an explicit mode (the GROUP BY segmented control). */
-function setViewMode(mode: string): void {
-  setStatusGrouping(false); // leaving the GUI-only Status override, if it's on
-  if (mode === viewMode()) return;
-  applyViewMode(mode);
-}
-
-/** GROUP BY segmented control: [Sections | Projects | Status]. Sections and
- *  Projects are bound to viewMode (Projects→"project", Sections→"sections";
- *  "section_stacks" still counts as the Sections side and stays reachable via
- *  the palette's cycleViewMode). Status is the GUI-only tier grouping and
- *  overrides whichever viewMode sits underneath. */
-function renderGroupByBar(): HTMLElement {
-  const bar = document.createElement("div");
-  bar.className = "group-by-bar";
-  const label = document.createElement("span");
-  label.className = "group-by-label";
-  label.textContent = "GROUP BY";
-
-  const seg = document.createElement("div");
-  seg.className = "segmented";
-  const sectionsActive = !statusGrouping() && (viewMode() === "sections" || viewMode() === "section_stacks");
-
-  const sectionsBtn = document.createElement("button");
-  sectionsBtn.className = "segment";
-  sectionsBtn.textContent = "Sections";
-  sectionsBtn.classList.toggle("active", sectionsActive);
-  sectionsBtn.addEventListener("click", () => setViewMode("sections"));
-
-  const projectsBtn = document.createElement("button");
-  projectsBtn.className = "segment";
-  projectsBtn.textContent = "Projects";
-  projectsBtn.classList.toggle("active", !statusGrouping() && !sectionsActive);
-  projectsBtn.addEventListener("click", () => setViewMode("project"));
-
-  const statusBtn = document.createElement("button");
-  statusBtn.className = "segment";
-  statusBtn.textContent = "Status";
-  statusBtn.classList.toggle("active", statusGrouping());
-  statusBtn.addEventListener("click", () => setStatusGrouping(true));
-
-  seg.append(sectionsBtn, projectsBtn, statusBtn);
-  bar.append(label, seg);
-  return bar;
-}
-
-/** Banner shown when a project filter is active, with a clear affordance. */
-function renderFilterBanner(group: ProjectGroup): HTMLElement {
-  const banner = document.createElement("div");
-  banner.className = "filter-banner";
-  const square = document.createElement("span");
-  square.className = `proj-square ${projClass(group.id)}`;
-  const text = document.createElement("span");
-  text.className = "filter-text";
-  text.textContent = `filtered to ${group.name}`;
-  const clear = document.createElement("button");
-  clear.className = "row-action";
-  clear.textContent = "✕";
-  clear.title = "Clear project filter";
-  clear.addEventListener("click", () => {
-    projectFilter = null;
-    renderSidebar();
-  });
-  banner.append(square, text, clear);
-  return banner;
-}
-
-/** Render section-grouped views: section headers with rows looked up by id. */
-function renderSections(buckets: SectionBucket[]): void {
-  const projById = new Map(groups().map((g) => [g.id, g]));
-  buckets.forEach((bucket, bucketIndex) => {
-    // Compose with the project filter: only the filtered project's ids survive.
-    const ids = projectFilter
-      ? bucket.session_ids.filter((id) => findSession(id)?.project_id === projectFilter)
-      : bucket.session_ids;
-    const header = document.createElement("div");
-    header.className = "project-header";
-    const name = document.createElement("span");
-    name.textContent = bucket.name;
-    const count = document.createElement("span");
-    count.className = "meta";
-    count.textContent = String(ids.length);
-    header.append(name, count, headerRule());
-    const isCollapsed = makeCollapsible(header, name, `sect:${bucket.name}`);
-    // Annotate as a session drop target for the row drag (see renderRow): "" on
-    // the index-0 "In Progress" catch-all clears the pin, else the section name.
-    header.dataset.dropSection = bucketIndex === 0 ? "" : bucket.name;
-    sessionsEl.appendChild(header);
-    if (isCollapsed) return;
-
-    // Cluster the section's sessions by project, preserving first-seen project
-    // order and within-project order — a stack never spans projects, so its
-    // root and indented children stay contiguous.
-    const order: string[] = [];
-    const byProject = new Map<string, SessionRow[]>();
-    for (const id of ids) {
-      const s = findSession(id);
-      if (!s) continue;
-      let rows = byProject.get(s.project_id);
-      if (!rows) {
-        rows = [];
-        byProject.set(s.project_id, rows);
-        order.push(s.project_id);
-      }
-      rows.push(s);
-    }
-
-    for (const pid of order) {
-      const rows = byProject.get(pid)!;
-      const group = projById.get(pid);
-      if (group) {
-        sessionsEl.appendChild(renderProjectSubheader(group, bucket.name));
-        if (newSessionProject === sectionCreateKey(bucket.name, group.id)) {
-          sessionsEl.appendChild(renderCreateInput(group));
-        }
-      }
-      renderRows(rows);
-      pushVisibleRows(rows.map((s) => s.id));
-    }
-  });
-}
-
-/** A project sub-header shown inside a section bucket: names the project and
- *  carries the same new-session affordances as the real project header. Not a
- *  drop target — only section headers accept dropped sessions. */
-function renderProjectSubheader(group: ProjectGroup, sectionName: string): HTMLDivElement {
-  const key = sectionCreateKey(sectionName, group.id);
-  const header = document.createElement("div");
-  header.className = "project-subheader";
-  const name = document.createElement("span");
-  name.textContent = group.name;
-  const add = document.createElement("button");
-  add.className = "row-action";
-  add.textContent = "+";
-  add.title = "New session in this project";
-  add.addEventListener("click", (e) => {
-    e.stopPropagation();
-    newSessionProject = newSessionProject === key ? null : key;
-    renderSidebar();
-  });
-  const buttons = document.createElement("span");
-  buttons.className = "header-buttons";
-  buttons.append(add);
-  header.append(name, buttons);
-  header.addEventListener("contextmenu", (e) =>
-    showContextMenu(e, projectMenuItems(group, key)),
-  );
-  return header;
-}
-
-function renderSidebar(): void {
-  const signature =
-    groups()
-      .map((g) => `${g.id}@${g.pull_blocked}:${g.sessions.map((s) => s.id).join(",")}`)
-      .join("|") +
-    `#${newSessionProject}#${renamingId()}#${topInput}#${viewMode()}#${projectFilter}` +
-    `#${sections()?.map((b) => `${b.name}=${b.session_ids.join(",")}`).join("|") ?? ""}` +
-    // Status grouping: tier membership must force a rebuild (a status flip has
-    // to move the row between tiers, which updateRow alone can't do).
-    `#${statusGrouping() ? "status:" + groups().flatMap((g) => g.sessions.map((s) => `${s.id}=${sessionTier(s)}`)).join(",") : ""}` +
-    `#${[...collapsed].sort().join(",")}`;
-
-  if (signature === sidebarSignature) {
-    for (const group of groups()) {
-      for (const s of group.sessions) {
-        const refs = rowRefs.get(s.id);
-        if (refs) updateRow(refs, s);
-      }
-    }
-    return;
-  }
-
-  sidebarSignature = signature;
-  rowRefs.clear();
-  resetVisibleRows();
-  sessionsEl.innerHTML = "";
-  if (topInput) {
-    sessionsEl.appendChild(renderTopInput(topInput));
-  }
-
-  // Grouping control, shown in every view.
-  sessionsEl.appendChild(renderGroupByBar());
-
-  // When a project filter is active, show a banner with a clear affordance.
-  const filterGroup = projectFilter ? groups().find((g) => g.id === projectFilter) : undefined;
-  if (filterGroup) {
-    sessionsEl.appendChild(renderFilterBanner(filterGroup));
-  }
-
-  // The GUI-only Status grouping overrides whichever view mode is active.
-  if (statusGrouping()) {
-    sessionsEl.appendChild(renderNewSessionButton());
-    renderStatusTiers();
-    return;
-  }
-
-  const buckets = sections();
-  if (sectionView() && buckets) {
-    sessionsEl.appendChild(renderNewSessionButton());
-    renderSections(buckets);
-    return;
-  }
-
-  for (const group of groups()) {
-    if (projectFilter && group.id !== projectFilter) continue;
-    const header = document.createElement("div");
-    header.className = "project-header";
-    const square = document.createElement("span");
-    square.className = `proj-square ${projClass(group.id)}`;
-    const name = document.createElement("span");
-    name.textContent = group.name;
-    // ⚠ pull-blocked chip sits beside the name (its own header child so it gets
-    // the row gap and escapes the header's uppercase transform).
-    const blockedChip = group.pull_blocked
-      ? pullBlockedChip(`Auto-pull of main blocked: ${group.pull_blocked}`)
-      : null;
-    const buttons = document.createElement("span");
-    buttons.className = "header-buttons";
-    const shell = document.createElement("button");
-    shell.className = "row-action";
-    shell.textContent = "$";
-    shell.title = "Project shell";
-    shell.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void openProjectShell(group);
-    });
-    const add = document.createElement("button");
-    add.className = "row-action";
-    add.textContent = "+";
-    add.title = "New session in this project";
-    add.addEventListener("click", (e) => {
-      e.stopPropagation();
-      newSessionProject = newSessionProject === group.id ? null : group.id;
-      collapsed.delete(`proj:${group.id}`); // the create input must be visible
-      renderSidebar();
-    });
-    buttons.append(shell, add);
-    const count = document.createElement("span");
-    count.className = "meta";
-    count.textContent = String(group.sessions.length);
-    header.append(square, name, count);
-    if (blockedChip) header.append(blockedChip);
-    header.append(headerRule(), buttons);
-    const isCollapsed = makeCollapsible(header, name, `proj:${group.id}`);
-    header.addEventListener("contextmenu", (e) => showContextMenu(e, projectMenuItems(group)));
-    sessionsEl.appendChild(header);
-    if (isCollapsed) continue;
-
-    if (newSessionProject === group.id) {
-      sessionsEl.appendChild(renderCreateInput(group));
-    }
-    if (!group.sessions.length && projectFilter === group.id) {
-      sessionsEl.appendChild(renderEmptyProject(group));
-      continue;
-    }
-    renderRows(group.sessions);
-    pushVisibleRows(group.sessions.map((s) => s.id));
-  }
-}
-
-// The sidebar redraws on request rather than by direct call, so a terminal
-// exit or a board action can ask for it without importing it.
-registerView("sidebar", renderSidebar);
-
-// The sidebar draws the keyboard cursor on its rows, and mirrors it to the
-// listbox's aria-activedescendant so assistive tech follows the same row.
-onSelectionChange(() => {
-  const id = selectedSession();
-  for (const [rowId, refs] of rowRefs) {
-    const sel = rowId === id;
-    refs.row.classList.toggle("selected", sel);
-    refs.row.setAttribute("aria-selected", sel ? "true" : "false");
-  }
-  sessionsEl.setAttribute("aria-activedescendant", id ? `row-${id}` : "");
-  if (id) rowRefs.get(id)?.row.scrollIntoView({ block: "nearest" });
-});
-
-/** Full-width create button for groupings without project headers (section and
- *  status views): pick any project (incl. sessionless ones), then a title. */
-function renderNewSessionButton(): HTMLButtonElement {
-  const newBtn = document.createElement("button");
-  newBtn.className = "new-session-btn";
-  newBtn.textContent = "+ New session";
-  newBtn.addEventListener("click", (e) => showContextMenu(e, projectPickerItems()));
-  return newBtn;
-}
-
-/** Render the GUI-only Status grouping: sessions bucketed into coarse activity
- *  tiers (Needs you / Active / Parked; see stateTier). Tier membership only
- *  changes on meaningful events — a turn ending, a session stopped or resumed —
- *  never on the working ⇄ idle flicker, so rows don't shuffle underneath the
- *  user. Within a tier, rows cluster by project in snapshot order (mirroring
- *  renderSections). Empty tiers are hidden. Tier headers are not section drop
- *  targets: status changes machine-side, so there's nothing to drag onto. */
-function renderStatusTiers(): void {
-  const buckets = new Map<StatusTier, SessionRow[]>();
-  for (const g of groups()) {
-    if (projectFilter && g.id !== projectFilter) continue;
-    for (const s of g.sessions) {
-      const tier = sessionTier(s);
-      let rows = buckets.get(tier);
-      if (!rows) {
-        rows = [];
-        buckets.set(tier, rows);
-      }
-      rows.push(s);
-    }
-  }
-
-  const projById = new Map(groups().map((g) => [g.id, g]));
-  for (const { tier, label } of STATUS_TIERS) {
-    const tierRows = buckets.get(tier);
-    if (!tierRows?.length) continue;
-    const header = document.createElement("div");
-    // tier-* lets the "Needs you" tier read as the list's peak (see CSS); the
-    // other tiers keep the plain group-header treatment.
-    header.className = `project-header tier-${tier}`;
-    const name = document.createElement("span");
-    name.textContent = label;
-    const count = document.createElement("span");
-    count.className = "meta";
-    count.textContent = String(tierRows.length);
-    header.append(name, count, headerRule());
-    const isCollapsed = makeCollapsible(header, name, `tier:${tier}`);
-    sessionsEl.appendChild(header);
-    if (isCollapsed) continue;
-
-    // Cluster the tier's sessions by project, preserving snapshot order.
-    const order: string[] = [];
-    const byProject = new Map<string, SessionRow[]>();
-    for (const s of tierRows) {
-      let rows = byProject.get(s.project_id);
-      if (!rows) {
-        rows = [];
-        byProject.set(s.project_id, rows);
-        order.push(s.project_id);
-      }
-      rows.push(s);
-    }
-
-    for (const pid of order) {
-      const rows = byProject.get(pid)!;
-      const group = projById.get(pid);
-      if (group) {
-        sessionsEl.appendChild(renderProjectSubheader(group, label));
-        if (newSessionProject === sectionCreateKey(label, group.id)) {
-          sessionsEl.appendChild(renderCreateInput(group));
-        }
-      }
-      renderRows(rows);
-      pushVisibleRows(rows.map((s) => s.id));
-    }
-  }
-}
-
-/** Render an ordered row list, folding consecutive stacked_child rows into a
- *  bordered stack group. Shared by both groupings. */
-function renderRows(rows: SessionRow[]): void {
-  for (const unit of groupStacks(rows)) {
-    if (unit.kind === "stack") {
-      sessionsEl.appendChild(renderStack(unit.parent, unit.children));
-    } else {
-      sessionsEl.appendChild(renderSessionRow(unit.session));
-    }
-  }
-}
-
-/** Empty-project state shown when filtered to a project with no sessions: a
- *  dashed "＋" tile plus new-session / shell affordances (reusing the rail's
- *  backend wiring). */
-function renderEmptyProject(group: ProjectGroup): HTMLDivElement {
-  const block = document.createElement("div");
-  block.className = "empty-project";
-  const tile = document.createElement("div");
-  tile.className = "empty-tile";
-  tile.textContent = "＋";
-  const msg = document.createElement("div");
-  msg.className = "empty-msg";
-  msg.textContent = `No sessions in ${group.name} yet`;
-  const actions = document.createElement("div");
-  actions.className = "empty-actions";
-  const create = document.createElement("button");
-  create.className = "row-action";
-  create.textContent = "＋ New session";
-  create.addEventListener("click", () => void createSessionInProject(group));
-  const shell = document.createElement("button");
-  shell.className = "row-action";
-  shell.textContent = "$ Shell";
-  shell.addEventListener("click", () => void openProjectShell(group));
-  actions.append(create, shell);
-  block.append(tile, msg, actions);
-  return block;
-}
-
-document.querySelector<HTMLButtonElement>("#sidebar-menu")!.addEventListener("click", (e) => {
-  showContextMenu(e, sidebarMenuItems());
-});
-
 // ------------------------------------------------------------- onboarding
 //
 // First-run hero over the terminal pane. Shown whenever there are zero
@@ -1375,7 +428,7 @@ onboardingAddProjectBtn.addEventListener("click", () => {
         .catch((err) => actionErrorToast("add_project", err))
         .finally(() => void refreshNow());
     } else {
-      topInput = "add";
+      setTopInput("add");
       renderSidebar();
     }
   });
@@ -1575,6 +628,16 @@ commanderChip.addEventListener("click", () => {
 });
 
 // ------------------------------------------------------------------- board
+
+// Board layout: which cards are visible (filter pills) + a name search. Mirrors
+// projectFilter's "local UI state, re-render on change" shape.
+let boardSearch = "";
+// Project multiselect filter: the set of selected project ids, or null for "all
+// projects" (the default). Cards whose project isn't selected are hidden across
+// every section column.
+let boardProjectFilter: Set<string> | null = null;
+// Hide section columns with zero visible cards (persisted).
+let hideEmptyColumns = localStorage.getItem("cc-board-hide-empty") === "1";
 //
 // The Board layout renders the SAME snapshot `groups` as the sidebar — one
 // column per project, agent cards inside — reusing the Console helpers
@@ -2314,7 +1377,7 @@ registerPaletteProvider(() => [
     iconTone: "success",
     shortcut: kb("new_project"),
     action: () => {
-      topInput = "add";
+      setTopInput("add");
       renderSidebar();
     },
   },
@@ -2325,7 +1388,7 @@ registerPaletteProvider(() => [
     iconTone: "success",
     shortcut: kb("scan_directory"),
     action: () => {
-      topInput = "scan";
+      setTopInput("scan");
       renderSidebar();
     },
   },
@@ -2442,8 +1505,8 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
       if (statusGrouping() && s) {
         const tier = sessionTier(s);
         const label = STATUS_TIERS.find((t) => t.tier === tier)!.label;
-        newSessionProject = sectionCreateKey(label, g.id);
-        collapsed.delete(`tier:${tier}`);
+        setNewSessionProject(sectionCreateKey(label, g.id));
+        expandGroup(`tier:${tier}`);
         renderSidebar();
         return;
       }
@@ -2453,28 +1516,28 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
       if (sectionView() && s && buckets) {
         const bucket = buckets.find((b) => b.session_ids.includes(s.id));
         if (bucket) {
-          newSessionProject = sectionCreateKey(bucket.name, g.id);
-          collapsed.delete(`sect:${bucket.name}`);
+          setNewSessionProject(sectionCreateKey(bucket.name, g.id));
+          expandGroup(`sect:${bucket.name}`);
           renderSidebar();
           return;
         }
       }
-      newSessionProject = g.id;
-      collapsed.delete(`proj:${g.id}`);
+      setNewSessionProject(g.id);
+      expandGroup(`proj:${g.id}`);
       renderSidebar();
     },
   },
   new_project: {
     label: "Add project",
     run: () => {
-      topInput = "add";
+      setTopInput("add");
       renderSidebar();
     },
   },
   scan_directory: {
     label: "Scan directory for repos",
     run: () => {
-      topInput = "scan";
+      setTopInput("scan");
       renderSidebar();
     },
   },
