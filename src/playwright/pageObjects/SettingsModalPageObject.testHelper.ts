@@ -3,7 +3,7 @@ import { AppPageObject } from "./AppPageObject.testHelper";
 
 // Drives the settings modal (#settings-overlay), reached via the palette
 // "Settings" command. The modal has a single searchable category nav (config
-// categories plus the GUI-only Appearance) and a content panel. Only the
+// categories plus the GUI-only Appearance and Features) and a content panel. Only the
 // active category's controls are in the DOM, so tests select the category
 // before touching a field. Each config control is keyed by its dot-path in
 // data-key with a data-kind (toggle / number / text / path / nullable /
@@ -49,6 +49,11 @@ export class SettingsModalPageObject extends AppPageObject {
   /** The uppercase heading at the top of the content panel. */
   panelHeading(): Locator {
     return this.box.locator(".settings-panel-heading");
+  }
+
+  /** Explanatory notes rendered in the content panel, top to bottom. */
+  panelNotes(): Promise<string[]> {
+    return this.box.locator(".settings-panel .settings-note").allInnerTexts();
   }
 
   field(key: string): Locator {

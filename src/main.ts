@@ -24,6 +24,7 @@ import {
   loadedBindings,
   formatBinding,
   overlayOpen as keyOverlayOpen,
+  rebindActions,
 } from "./keys";
 import { openSettings } from "./settings";
 import { statusChip, commentsChip, pullBlockedChip, stackChip, shellChip, stateChipInfo, stateTier, STATUS_TIERS, type StatusState, type StatusTier } from "./status";
@@ -42,6 +43,8 @@ import {
 } from "./theme";
 import { openThemeModal } from "./themeModal";
 import { createHarnessPicker, createSessionDialog, rememberHarness } from "./harnessPicker";
+import { featurePalette, featureActions, onFeatureChange } from "./features";
+import "./featureList";
 
 // Apply the GUI theme (CSS custom properties) before any dynamic content renders,
 // then follow the OS appearance via the native Tauri theme event when in System mode.
@@ -4292,6 +4295,10 @@ registerPaletteProvider(() => [
   },
 ]);
 
+// Commands contributed by enabled optional features (Settings → Features). Read
+// on each palette open, so a toggle takes effect without a restart.
+registerPaletteProvider(featurePalette);
+
 // ------------------------------------------------------------- keybindings
 
 /**
@@ -4525,17 +4532,25 @@ function helpKeyLabel(keys: string[]): string {
   return [...seen].join(", ");
 }
 
+/** KEY_ACTIONS plus the actions contributed by enabled optional features. A
+ *  feature that's switched off contributes nothing, so its keys stay unbound
+ *  and the help overlay doesn't list them. */
+function allKeyActions(): Record<string, { label: string; run: () => void }> {
+  return { ...KEY_ACTIONS, ...featureActions() };
+}
+
 function applyHelpKeybindings(): void {
   setHelpKeybindings(
-    Object.entries(KEY_ACTIONS)
+    Object.entries(allKeyActions())
       .map(([action, a]) => [helpKeyLabel(loadedBindings[action] ?? []), a.label] as [string, string])
       .filter(([keys]) => keys.length > 0),
   );
 }
 
-void initKeybindings(
-  Object.fromEntries(Object.entries(KEY_ACTIONS).map(([action, a]) => [action, a.run])),
-).then((loaded) => {
+const dispatchActions = (): Record<string, () => void> =>
+  Object.fromEntries(Object.entries(allKeyActions()).map(([action, a]) => [action, a.run]));
+
+void initKeybindings(dispatchActions()).then((loaded) => {
   if (!loaded) {
     // Keep "?" working even when the keybinding table couldn't be fetched.
     document.addEventListener("keydown", (e) => {
@@ -4546,6 +4561,13 @@ void initKeybindings(
     });
     return;
   }
+  applyHelpKeybindings();
+});
+
+// Toggling an optional feature adds or removes its actions: rebuild the
+// dispatch table from the same bindings and refresh the help overlay to match.
+onFeatureChange(() => {
+  rebindActions(dispatchActions());
   applyHelpKeybindings();
 });
 
