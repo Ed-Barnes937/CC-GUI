@@ -86,6 +86,30 @@ import {
   boardDockBranchEl,
   boardDockBackdropEl,
 } from "./app/elements";
+import { registerView } from "./app/render";
+import {
+  applySnapshot,
+  commanderEnabled,
+  commanderStatus,
+  findSession,
+  groupOf,
+  groups,
+  hasSnapshot,
+  layout,
+  maskDeleted,
+  maskTitle,
+  sectionNames,
+  sectionView,
+  sections,
+  setLayoutPref,
+  setStatusGrouping,
+  setViewModePref,
+  statusGrouping,
+  unmaskDeleted,
+  unmaskTitle,
+  viewMode,
+} from "./app/store";
+import { actionErrorToast, invokeToast, lifecycle, lifecycleArgs, refreshNow } from "./app/actions";
 
 // Apply the GUI theme (CSS custom properties) before any dynamic content renders,
 // then follow the OS appearance via the native Tauri theme event when in System mode.
@@ -282,7 +306,7 @@ function activateTerminal(name: string): void {
     // In board mode the terminal lives in the dock; dock+fit there (fitting in
     // the hidden #terminals would measure a zero-size element). Otherwise fit
     // in place.
-    if (layout === "board") {
+    if (layout() === "board") {
       dockActiveTerminal();
     } else {
       entry.fit.fit();
@@ -293,7 +317,7 @@ function activateTerminal(name: string): void {
       });
       entry.term.focus();
     }
-  } else if (layout === "board") {
+  } else if (layout() === "board") {
     // The active terminal was just removed: refresh the dock to its placeholder.
     updateDockHeader();
   }
@@ -331,7 +355,7 @@ function closeTerminal(name: string): void {
   if (activeTerm === name) {
     activeTerm = terminals.keys().next().value ?? null;
     if (activeTerm) activateTerminal(activeTerm);
-    else if (layout === "board") updateDockHeader(); // no terminal left → dock placeholder
+    else if (layout() === "board") updateDockHeader(); // no terminal left → dock placeholder
   }
   updatePlaceholder();
   renderSidebar();
@@ -618,7 +642,7 @@ async function attachTerminal(
     // config-driven keybindings (including select_shell) are suppressed. A
     // no-op on shell/project-shell terminals, whose name matches no session.
     if (e.ctrlKey && e.key === "\\" && !e.metaKey && !e.altKey && !e.shiftKey) {
-      const s = groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
+      const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
       if (s) {
         e.preventDefault();
         void openShell(s);
@@ -780,7 +804,7 @@ function updateDockHeader(): void {
     boardDockPlaceholderEl.style.display = "flex";
     return;
   }
-  const s = groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === activeTerm);
+  const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === activeTerm);
   boardDockNameEl.textContent = s ? s.title : entry.title;
   boardDockBranchEl.textContent = s ? s.branch : "";
   boardDockPlaceholderEl.style.display = "none";
@@ -1093,7 +1117,7 @@ function renderPanes(): void {
     return;
   }
   if (!focusedSlot || !panes.has(focusedSlot)) focusedSlot = firstSlot();
-  if (layout !== "console") {
+  if (layout() !== "console") {
     updateTabPaneColors(); // split DOM only exists in console; rebuild on return
     return;
   }
@@ -1155,7 +1179,7 @@ function exitSplit(keep: string | null): void {
   if (target) activateTerminal(target);
   else {
     updatePlaceholder();
-    if (layout === "board") updateDockHeader();
+    if (layout() === "board") updateDockHeader();
   }
 }
 
@@ -1244,7 +1268,7 @@ window.addEventListener(
 function openFileExplorer(): void {
   const name = activeTerm;
   const s = name
-    ? groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
+    ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
     : undefined;
   if (!name || !s) {
     toast("No active session", "error");
@@ -1263,7 +1287,7 @@ function openFileExplorer(): void {
 function openMarkdownViewerForActiveSession(): void {
   const name = activeTerm;
   const s = name
-    ? groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
+    ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
     : undefined;
   if (!name || !s) {
     toast("No active session", "error");
@@ -1435,7 +1459,7 @@ function renderDetail(d: SessionDetail): void {
   // Tag chips: derive from the matching snapshot row's PR labels (real data;
   // no dedicated tag source exists). Empty when the session has no labels.
   detailTagsEl.innerHTML = "";
-  const row = groups.flatMap((g) => g.sessions).find((x) => x.id === d.id);
+  const row = groups().flatMap((g) => g.sessions).find((x) => x.id === d.id);
   for (const label of row?.pr_labels ?? []) {
     const chip = document.createElement("span");
     chip.className = "detail-tag";
@@ -1602,15 +1626,6 @@ void listen<{ session: string; ended: boolean }>("pty-exit", (event) => {
 
 // ----------------------------------------------------------------- sidebar
 
-let groups: ProjectGroup[] = [];
-let layout: "console" | "board" = (localStorage.getItem("cc-layout") as "console" | "board") ?? "console";
-// GUI-owned session-list grouping, persisted in localStorage like the layout
-// and Status-grouping prefs. Upstream moved view mode into a TUI-private prefs
-// store the GUI can't reach, so the GUI owns it outright now; the backend just
-// supplies the section buckets and the frontend picks project vs section view.
-let viewMode = localStorage.getItem("cc-view-mode") ?? "project";
-let sections: SectionBucket[] | null = null;
-let sectionNames: string[] = [];
 // Key of the project header with an open create-input. In project view this is
 // the bare project id; in section view it's scoped to the section (see
 // `sectionCreateKey`) so the same project across sections opens independently.
@@ -1621,19 +1636,6 @@ let topInput: "add" | "scan" | null = null; // sidebar-top path input mode
 // null for "all projects". Composes with whichever grouping is active.
 let projectFilter: string | null = null;
 
-// GUI-only "Status" grouping override (the GROUP BY control's third segment):
-// groups the sidebar by activity tier instead of the section/project viewMode —
-// the crate's ViewMode has no status variant, so like viewMode and the layout
-// preference this lives in localStorage and layers over viewMode underneath.
-let statusGrouping = localStorage.getItem("cc-status-grouping") === "1";
-
-function setStatusGrouping(on: boolean): void {
-  if (on === statusGrouping) return;
-  statusGrouping = on;
-  localStorage.setItem("cc-status-grouping", on ? "1" : "0");
-  renderSidebar();
-}
-
 // Board layout: which cards are visible (filter pills) + a name search. Mirrors
 // projectFilter's "local UI state, re-render on change" shape.
 let boardSearch = "";
@@ -1643,12 +1645,6 @@ let boardSearch = "";
 let boardProjectFilter: Set<string> | null = null;
 // Hide section columns with zero visible cards (persisted).
 let hideEmptyColumns = localStorage.getItem("cc-board-hide-empty") === "1";
-
-// Section layout is active only when the GUI-owned view mode selects it AND the
-// backend supplied section buckets (sections are always sent when configured,
-// so project view must be gated on viewMode, not merely on `sections`).
-const SECTION_VIEW = (): boolean =>
-  sections !== null && (viewMode === "sections" || viewMode === "section_stacks");
 
 /** Create-input key for a project sub-header inside a section. The `sect:`
  *  prefix can't collide with a bare project uuid (project-view key). */
@@ -1685,14 +1681,6 @@ function headerRule(): HTMLSpanElement {
   const rule = document.createElement("span");
   rule.className = "header-rule";
   return rule;
-}
-
-function findSession(id: string): SessionRow | undefined {
-  for (const g of groups) {
-    const s = g.sessions.find((s) => s.id === id);
-    if (s) return s;
-  }
-  return undefined;
 }
 
 // ------------------------------------------------- keyboard selection model
@@ -1758,16 +1746,12 @@ function targetSession(): SessionRow | undefined {
     if (s) return s;
   }
   if (activeTerm) {
-    for (const g of groups) {
+    for (const g of groups()) {
       const s = g.sessions.find((x) => x.tmux_session_name === activeTerm);
       if (s) return s;
     }
   }
   return undefined;
-}
-
-function groupOf(sessionId: string): ProjectGroup | undefined {
-  return groups.find((g) => g.sessions.some((s) => s.id === sessionId));
 }
 
 /** Liveness-dot state classes set by applyStatusGlyph. `dot-running` carries
@@ -1893,7 +1877,7 @@ function projClass(projectId: string): string {
  *  with no matching session (e.g. commander) keep their glyph hidden. */
 function updateTabGlyphs(): void {
   for (const [name, entry] of terminals) {
-    const s = groups.flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
+    const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
     if (s) {
       entry.glyph.hidden = false;
       applyStatusGlyph(entry.glyph, s);
@@ -1902,6 +1886,8 @@ function updateTabGlyphs(): void {
     }
   }
 }
+
+registerView("tabs", updateTabGlyphs);
 
 function actionButton(
   label: string,
@@ -1941,107 +1927,19 @@ function confirmButton(
 }
 
 /** Re-fetch the sidebar snapshot now instead of waiting for the 2s tick. */
-async function refreshNow(): Promise<void> {
-  try {
-    applySnapshot(await invoke<Snapshot>("get_groups"));
-  } catch {
-    // transient; the next push tick recovers
-  }
-}
-
-/** Plain-language verb per lifecycle/command action, for error toasts. */
-const ACTION_VERB: Record<string, string> = {
-  kill_session: "stop the session",
-  restart_session: "restart the session",
-  restart_fresh: "restart the session fresh",
-  delete_session: "delete the session",
-  move_to_section: "move the session",
-  cascade_merge: "merge the stack",
-  push_stack: "push the stack",
-  cascade_resume: "resume the stack",
-  cascade_abandon: "abandon the stack",
-};
-
-/** Error toast naming the action in plain language; the raw backend error is
- *  kept on the hover title rather than shown inline. */
-function actionErrorToast(action: string, e: unknown): void {
-  const verb = ACTION_VERB[action] ?? action.replace(/_/g, " ");
-  toast(`Couldn't ${verb}.`, "error", String(e));
-}
-
-async function lifecycle(action: string, id: string): Promise<void> {
-  await lifecycleArgs(action, { id });
-}
-
-async function lifecycleArgs(action: string, args: Record<string, unknown>): Promise<void> {
-  try {
-    await invoke(action, args);
-  } catch (e) {
-    actionErrorToast(action, e);
-  }
-  await refreshNow();
-}
-
-/** Invoke a long-running command and surface its summary (or error). */
-async function invokeToast(action: string, args: Record<string, unknown>): Promise<void> {
-  try {
-    const msg = await invoke<string | null>(action, args);
-    if (msg) toast(msg);
-  } catch (e) {
-    actionErrorToast(action, e);
-  }
-  await refreshNow();
-}
-
-// Optimistic-update overlays: sessions deleted (or retitled) locally before
-// the backend confirms, applied over every incoming snapshot. A mask is held
-// until a snapshot *confirms* the change (session absent for a delete; new
-// title present for a rename) — NOT merely until the invoke resolves. The 2s
-// push loop can build a snapshot just before our mutation lands and deliver it
-// just after, so clearing on resolve alone would flash the stale row/title
-// back until the next tick. On invoke error the mask is force-cleared instead.
-const pendingDeletes = new Set<string>();
-const pendingTitles = new Map<string, string>();
-
-function applyPendingOverlays(snap: Snapshot): void {
-  if (!pendingDeletes.size && !pendingTitles.size) return;
-
-  // Reconcile against the raw (pre-mask) snapshot: drop masks the backend has
-  // caught up on, so they don't linger and suppress a later re-creation.
-  const present = new Map<string, string>();
-  for (const g of snap.groups) for (const s of g.sessions) present.set(s.id, s.title);
-  for (const id of [...pendingDeletes]) if (!present.has(id)) pendingDeletes.delete(id);
-  for (const [id, title] of [...pendingTitles]) {
-    if (present.get(id) === title) pendingTitles.delete(id);
-  }
-
-  for (const g of snap.groups) {
-    g.sessions = g.sessions.filter((s) => !pendingDeletes.has(s.id));
-    for (const s of g.sessions) {
-      const title = pendingTitles.get(s.id);
-      if (title) s.title = title;
-    }
-  }
-  if (snap.sections) {
-    for (const b of snap.sections) {
-      b.session_ids = b.session_ids.filter((id) => !pendingDeletes.has(id));
-    }
-  }
-}
-
-/** Optimistically remove the row, then delete in the background. */
 function deleteSession(s: SessionRow): void {
   closeTerminal(s.tmux_session_name);
-  pendingDeletes.add(s.id);
-  for (const g of groups) g.sessions = g.sessions.filter((row) => row.id !== s.id);
-  if (sections) for (const b of sections) b.session_ids = b.session_ids.filter((id) => id !== s.id);
+  maskDeleted(s.id);
+  for (const g of groups()) g.sessions = g.sessions.filter((row) => row.id !== s.id);
+  const buckets = sections();
+  if (buckets) for (const b of buckets) b.session_ids = b.session_ids.filter((id) => id !== s.id);
   renderSidebar();
   renderBoard();
   updateTitleBarCounts();
   invoke("delete_session", { id: s.id })
     .then(() => refreshNow()) // a fresh snapshot confirms absence and clears the mask
     .catch((e) => {
-      pendingDeletes.delete(s.id); // failed: un-mask so the row returns
+      unmaskDeleted(s.id); // failed: un-mask so the row returns
       actionErrorToast("delete_session", e);
       void refreshNow();
     });
@@ -2249,8 +2147,8 @@ function sessionMenuItems(refs: RowRefs): MenuItem[] {
       action: () => void invokeToast("cascade_abandon", {}),
     });
   }
-  if (sectionNames.length) {
-    for (const name of sectionNames) {
+  if (sectionNames().length) {
+    for (const name of sectionNames()) {
       if (name !== s.current_section) {
         extras.push({
           label: `Move to section: ${name}`,
@@ -2287,12 +2185,12 @@ function renderRenameInput(s: SessionRow): HTMLInputElement {
       renamingId = null;
       // Optimistic: show the new title immediately; the mask clears once a
       // snapshot carries the new title (see applyPendingOverlays).
-      pendingTitles.set(s.id, title);
+      maskTitle(s.id, title);
       s.title = title;
       invoke("rename_session", { id: s.id, title })
         .then(() => refreshNow())
         .catch((err) => {
-          pendingTitles.delete(s.id); // failed: un-mask so the old title returns
+          unmaskTitle(s.id); // failed: un-mask so the old title returns
           toast(`rename failed: ${err}`, "error");
           void refreshNow();
         });
@@ -2760,10 +2658,10 @@ function sidebarMenuItems(): MenuItem[] {
  *  so it includes projects with no sessions — the one path to create a session
  *  for them in section views, where sessionless projects have no sub-header. */
 function projectPickerItems(): MenuItem[] {
-  if (!groups.length) {
+  if (!groups().length) {
     return [{ label: "No projects — add one first", action: () => {} }];
   }
-  return groups.map((g) => ({
+  return groups().map((g) => ({
     label: g.name,
     action: () => void createSessionInProject(g),
   }));
@@ -2778,25 +2676,24 @@ async function createSessionInProject(group: ProjectGroup): Promise<void> {
 /** Persist the GUI-owned view mode and repaint. Section views fall back to
  *  "project" when no sections are configured (the backend used to reject them). */
 function applyViewMode(mode: string): void {
-  if ((mode === "sections" || mode === "section_stacks") && sectionNames.length === 0) {
+  if ((mode === "sections" || mode === "section_stacks") && sectionNames().length === 0) {
     mode = "project";
   }
-  viewMode = mode;
-  localStorage.setItem("cc-view-mode", mode);
+  setViewModePref(mode);
   renderSidebar();
 }
 
 function cycleViewMode(): void {
   // Backend grouping modes, then the GUI-only Status stop. Section modes drop
   // out of the cycle when no sections are configured.
-  const modes = sectionNames.length ? ["project", "sections", "section_stacks"] : ["project"];
-  if (statusGrouping) {
+  const modes = sectionNames().length ? ["project", "sections", "section_stacks"] : ["project"];
+  if (statusGrouping()) {
     // Status (GUI-only) is the cycle's last stop; leaving it restarts at the top.
     setStatusGrouping(false);
     applyViewMode(modes[0]);
     return;
   }
-  const idx = modes.indexOf(viewMode);
+  const idx = modes.indexOf(viewMode());
   if (idx === modes.length - 1) {
     setStatusGrouping(true);
     return;
@@ -2807,7 +2704,7 @@ function cycleViewMode(): void {
 /** Switch grouping to an explicit mode (the GROUP BY segmented control). */
 function setViewMode(mode: string): void {
   setStatusGrouping(false); // leaving the GUI-only Status override, if it's on
-  if (mode === viewMode) return;
+  if (mode === viewMode()) return;
   applyViewMode(mode);
 }
 
@@ -2825,7 +2722,7 @@ function renderGroupByBar(): HTMLElement {
 
   const seg = document.createElement("div");
   seg.className = "segmented";
-  const sectionsActive = !statusGrouping && (viewMode === "sections" || viewMode === "section_stacks");
+  const sectionsActive = !statusGrouping() && (viewMode() === "sections" || viewMode() === "section_stacks");
 
   const sectionsBtn = document.createElement("button");
   sectionsBtn.className = "segment";
@@ -2836,13 +2733,13 @@ function renderGroupByBar(): HTMLElement {
   const projectsBtn = document.createElement("button");
   projectsBtn.className = "segment";
   projectsBtn.textContent = "Projects";
-  projectsBtn.classList.toggle("active", !statusGrouping && !sectionsActive);
+  projectsBtn.classList.toggle("active", !statusGrouping() && !sectionsActive);
   projectsBtn.addEventListener("click", () => setViewMode("project"));
 
   const statusBtn = document.createElement("button");
   statusBtn.className = "segment";
   statusBtn.textContent = "Status";
-  statusBtn.classList.toggle("active", statusGrouping);
+  statusBtn.classList.toggle("active", statusGrouping());
   statusBtn.addEventListener("click", () => setStatusGrouping(true));
 
   seg.append(sectionsBtn, projectsBtn, statusBtn);
@@ -2873,7 +2770,7 @@ function renderFilterBanner(group: ProjectGroup): HTMLElement {
 
 /** Render section-grouped views: section headers with rows looked up by id. */
 function renderSections(buckets: SectionBucket[]): void {
-  const projById = new Map(groups.map((g) => [g.id, g]));
+  const projById = new Map(groups().map((g) => [g.id, g]));
   buckets.forEach((bucket, bucketIndex) => {
     // Compose with the project filter: only the filtered project's ids survive.
     const ids = projectFilter
@@ -2956,18 +2853,18 @@ function renderProjectSubheader(group: ProjectGroup, sectionName: string): HTMLD
 
 function renderSidebar(): void {
   const signature =
-    groups
+    groups()
       .map((g) => `${g.id}@${g.pull_blocked}:${g.sessions.map((s) => s.id).join(",")}`)
       .join("|") +
-    `#${newSessionProject}#${renamingId}#${topInput}#${viewMode}#${projectFilter}` +
-    `#${sections?.map((b) => `${b.name}=${b.session_ids.join(",")}`).join("|") ?? ""}` +
+    `#${newSessionProject}#${renamingId}#${topInput}#${viewMode()}#${projectFilter}` +
+    `#${sections()?.map((b) => `${b.name}=${b.session_ids.join(",")}`).join("|") ?? ""}` +
     // Status grouping: tier membership must force a rebuild (a status flip has
     // to move the row between tiers, which updateRow alone can't do).
-    `#${statusGrouping ? "status:" + groups.flatMap((g) => g.sessions.map((s) => `${s.id}=${sessionTier(s)}`)).join(",") : ""}` +
+    `#${statusGrouping() ? "status:" + groups().flatMap((g) => g.sessions.map((s) => `${s.id}=${sessionTier(s)}`)).join(",") : ""}` +
     `#${[...collapsed].sort().join(",")}`;
 
   if (signature === sidebarSignature) {
-    for (const group of groups) {
+    for (const group of groups()) {
       for (const s of group.sessions) {
         const refs = rowRefs.get(s.id);
         if (refs) updateRow(refs, s);
@@ -2988,25 +2885,26 @@ function renderSidebar(): void {
   sessionsEl.appendChild(renderGroupByBar());
 
   // When a project filter is active, show a banner with a clear affordance.
-  const filterGroup = projectFilter ? groups.find((g) => g.id === projectFilter) : undefined;
+  const filterGroup = projectFilter ? groups().find((g) => g.id === projectFilter) : undefined;
   if (filterGroup) {
     sessionsEl.appendChild(renderFilterBanner(filterGroup));
   }
 
   // The GUI-only Status grouping overrides whichever view mode is active.
-  if (statusGrouping) {
+  if (statusGrouping()) {
     sessionsEl.appendChild(renderNewSessionButton());
     renderStatusTiers();
     return;
   }
 
-  if (SECTION_VIEW() && sections) {
+  const buckets = sections();
+  if (sectionView() && buckets) {
     sessionsEl.appendChild(renderNewSessionButton());
-    renderSections(sections);
+    renderSections(buckets);
     return;
   }
 
-  for (const group of groups) {
+  for (const group of groups()) {
     if (projectFilter && group.id !== projectFilter) continue;
     const header = document.createElement("div");
     header.className = "project-header";
@@ -3063,6 +2961,10 @@ function renderSidebar(): void {
   }
 }
 
+// The sidebar redraws on request rather than by direct call, so a terminal
+// exit or a board action can ask for it without importing it.
+registerView("sidebar", renderSidebar);
+
 /** Full-width create button for groupings without project headers (section and
  *  status views): pick any project (incl. sessionless ones), then a title. */
 function renderNewSessionButton(): HTMLButtonElement {
@@ -3082,7 +2984,7 @@ function renderNewSessionButton(): HTMLButtonElement {
  *  targets: status changes machine-side, so there's nothing to drag onto. */
 function renderStatusTiers(): void {
   const buckets = new Map<StatusTier, SessionRow[]>();
-  for (const g of groups) {
+  for (const g of groups()) {
     if (projectFilter && g.id !== projectFilter) continue;
     for (const s of g.sessions) {
       const tier = sessionTier(s);
@@ -3095,7 +2997,7 @@ function renderStatusTiers(): void {
     }
   }
 
-  const projById = new Map(groups.map((g) => [g.id, g]));
+  const projById = new Map(groups().map((g) => [g.id, g]));
   for (const { tier, label } of STATUS_TIERS) {
     const tierRows = buckets.get(tier);
     if (!tierRows?.length) continue;
@@ -3192,11 +3094,10 @@ document.querySelector<HTMLButtonElement>("#sidebar-menu")!.addEventListener("cl
 // the freshly attached terminal (see updatePlaceholder). No persisted flag;
 // purely driven by the live snapshot (applySnapshot) and terminal attach/detach.
 
-let commanderEnabled = false; // mirrors renderCommander's gate; set in applySnapshot
 
 /** First-run hero state: no projects and nothing attached. */
 function onboardingActive(): boolean {
-  return groups.length === 0 && terminals.size === 0;
+  return groups().length === 0 && terminals.size === 0;
 }
 
 function renderOnboarding(): void {
@@ -3207,18 +3108,20 @@ function renderOnboarding(): void {
   // Board layout (or deleting the last project while on the Board) would show
   // a blank surface instead of first-run guidance. Yield to Console while the
   // hero is up; the Board segment is guarded below for the same reason.
-  if (show && layout === "board") setLayout("console");
+  if (show && layout() === "board") setLayout("console");
   // Card 3 is only a live control when the commander is actually configured —
   // otherwise it reads inert, like card 2's "After a project" placeholder,
   // rather than firing prepare_commander into a raw error toast.
-  onboardingCommanderBtn.disabled = !commanderEnabled;
-  onboardingCommanderBtn.classList.toggle("outline", commanderEnabled);
-  onboardingCommanderBtn.classList.toggle("muted", !commanderEnabled);
+  onboardingCommanderBtn.disabled = !commanderEnabled();
+  onboardingCommanderBtn.classList.toggle("outline", commanderEnabled());
+  onboardingCommanderBtn.classList.toggle("muted", !commanderEnabled());
   // On first show, focus the primary path so Enter fires "Choose folder…"
   // (the ⏎-hinted CTA) rather than nothing — card 3's commander button is
   // disabled here, so it must never be the implicit Enter target.
   if (show && !wasShown) onboardingAddProjectBtn.focus();
 }
+
+registerView("onboarding", renderOnboarding);
 
 onboardingAddProjectBtn.addEventListener("click", () => {
   // Same native folder-picker the sidebar's Browse… uses; a cancel (no path
@@ -3249,7 +3152,7 @@ let boardAttentionEl: HTMLSpanElement | null = null;
  *  away (unread) — the at-a-glance attention queue, in sidebar snapshot order.
  *  In lockstep with the status-chip vocabulary via sessionStateKey. */
 function attentionSessions(): SessionRow[] {
-  return groups.flatMap((g) => g.sessions).filter((s) => {
+  return groups().flatMap((g) => g.sessions).filter((s) => {
     const key = sessionStateKey(s);
     return key === "waiting" || key === "finished";
   });
@@ -3274,8 +3177,8 @@ function jumpToAttention(): void {
 }
 
 function updateTitleBarCounts(): void {
-  const total = groups.reduce((n, g) => n + g.sessions.length, 0);
-  const live = groups.flatMap((g) => g.sessions).filter((s) => s.status === "running").length;
+  const total = groups().reduce((n, g) => n + g.sessions.length, 0);
+  const live = groups().flatMap((g) => g.sessions).filter((s) => s.status === "running").length;
   tbCount.textContent = `${total} sessions · ${live} live`;
   const waiting = attentionCount();
   tbAttention.textContent = `${waiting} waiting on you`;
@@ -3285,6 +3188,8 @@ function updateTitleBarCounts(): void {
     boardAttentionEl.classList.toggle("hidden", waiting === 0);
   }
 }
+
+registerView("titlebar", updateTitleBarCounts);
 
 /** Make an attention pill actionable: click or Enter/Space jumps to the next
  *  session that needs you (see jumpToAttention). The title-bar markup already
@@ -3301,12 +3206,11 @@ function wireAttentionPill(el: HTMLElement): void {
 wireAttentionPill(tbAttention);
 
 function setLayout(next: "console" | "board"): void {
-  if (next === layout) return;
+  if (next === layout()) return;
   // Split lives only in console. Collapse it (keeping the focused pane) while
   // the DOM is still in console layout, before switching surfaces.
   if (splitActive()) exitSplit(focusedSlot ? panes.get(focusedSlot)! : activeTerm);
-  layout = next;
-  localStorage.setItem("cc-layout", next);
+  setLayoutPref(next);
   closeReview();
   appEl.classList.toggle("board-mode", next === "board");
   boardEl.classList.toggle("hidden", next !== "board");
@@ -3340,12 +3244,12 @@ document
 document.querySelector<HTMLButtonElement>("#tb-help")!.addEventListener("click", () => toggleHelp());
 
 // Initialize segment + board visibility from persisted layout.
-appEl.classList.toggle("board-mode", layout === "board");
-boardEl.classList.toggle("hidden", layout !== "board");
-tbConsole.classList.toggle("active", layout === "console");
-tbBoard.classList.toggle("active", layout === "board");
+appEl.classList.toggle("board-mode", layout() === "board");
+boardEl.classList.toggle("hidden", layout() !== "board");
+tbConsole.classList.toggle("active", layout() === "console");
+tbBoard.classList.toggle("active", layout() === "board");
 // Dock the active terminal (if any) when booting straight into board mode.
-if (layout === "board") dockActiveTerminal();
+if (layout() === "board") dockActiveTerminal();
 
 // Dock "×" closes the preview: undock the terminal back to #terminals and
 // collapse the whole dock panel so the columns fill the board. It does NOT kill
@@ -3375,7 +3279,7 @@ function setDockFullscreen(on: boolean): void {
     const saved = Number(localStorage.getItem("cc-dock-height"));
     boardDockEl.style.height = saved ? `${saved}px` : ""; // restore the resized height
   }
-  if (layout === "board") dockActiveTerminal();
+  if (layout() === "board") dockActiveTerminal();
 }
 document.querySelector<HTMLButtonElement>("#board-dock-expand")!.addEventListener("click", () => {
   setDockFullscreen(!boardDockEl.classList.contains("dock-fullscreen"));
@@ -3391,7 +3295,7 @@ makeResizable({
   min: 120,
   max: 600,
   onResize: () => {
-    if (layout === "board") dockActiveTerminal();
+    if (layout() === "board") dockActiveTerminal();
   },
 });
 
@@ -3413,6 +3317,8 @@ function renderCommander(c: Snapshot["commander"]): void {
   attach.textContent = "attach ⏎";
   commanderChip.append(square, label, attach);
 }
+
+registerView("commander", () => renderCommander(commanderStatus()));
 
 commanderChip.addEventListener("click", () => {
   void (async () => {
@@ -3453,7 +3359,7 @@ function boardStateClass(s: SessionRow): string {
 
 /** Every project id known to the current snapshot, in board order. */
 function allProjectIds(): string[] {
-  return groups.map((g) => g.id);
+  return groups().map((g) => g.id);
 }
 
 /** The selected project ids, bounded to projects still present in the snapshot.
@@ -3490,12 +3396,12 @@ function boardSectionColumns(): BoardSection[] {
   const none: BoardSection = { key: NO_SECTION_KEY, name: NO_SECTION_LABEL, sessions: [] };
   const byName = new Map<string, BoardSection>();
   const cols: BoardSection[] = [none];
-  for (const name of sectionNames) {
+  for (const name of sectionNames()) {
     const col: BoardSection = { key: name, name, sessions: [] };
     byName.set(name, col);
     cols.push(col);
   }
-  for (const g of groups) {
+  for (const g of groups()) {
     for (const s of g.sessions) {
       if (!(boardMatchesFilter(s) && boardMatchesSearch(s))) continue;
       const sec = s.current_section;
@@ -4013,7 +3919,7 @@ function buildProjectFilter(): HTMLElement {
     let label: string;
     if (sel.size === total) label = "All projects";
     else if (sel.size === 0) label = "No projects";
-    else if (sel.size === 1) label = groups.find((g) => sel.has(g.id))?.name ?? "1 project";
+    else if (sel.size === 1) label = groups().find((g) => sel.has(g.id))?.name ?? "1 project";
     else label = `${sel.size} projects`;
     btn.textContent = `${label} ▾`;
   };
@@ -4048,7 +3954,7 @@ function buildProjectFilter(): HTMLElement {
     panel.appendChild(tools);
 
     const selected = selectedProjectIds();
-    for (const g of groups) {
+    for (const g of groups()) {
       const row = document.createElement("label");
       row.className = "board-project-row";
       const cb = document.createElement("input");
@@ -4130,27 +4036,12 @@ function renderBoard(): void {
   renderBoardColumns();
 }
 
-function applySnapshot(snap: Snapshot): void {
-  applyPendingOverlays(snap);
-  groups = snap.groups;
-  // viewMode is GUI-owned (localStorage), not read back from the snapshot.
-  sections = snap.sections;
-  sectionNames = snap.section_names;
-  commanderEnabled = snap.commander.enabled;
-  renderSidebar();
-  renderBoard();
-  // After renderBoard: the board's attention pill is created with the filter
-  // bar, and updateTitleBarCounts fills both pills.
-  updateTitleBarCounts();
-  renderOnboarding();
-  updateTabGlyphs();
-  renderCommander(snap.commander);
-}
+registerView("board", renderBoard);
 
 // ---------------------------------------------------------------- palette
 
 registerPaletteProvider(() =>
-  groups.flatMap((g) =>
+  groups().flatMap((g) =>
     g.sessions.map((s) => {
       const key = sessionStateKey(s);
       return {
@@ -4297,11 +4188,11 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
     label: "New session in cursor project",
     run: () => {
       const s = targetSession();
-      const g = s ? groupOf(s.id) : groups[0];
+      const g = s ? groupOf(s.id) : groups()[0];
       if (!g) return;
       // In the Status grouping the create-input lives under the cursor
       // session's project sub-header within its tier, so scope the key to it.
-      if (statusGrouping && s) {
+      if (statusGrouping() && s) {
         const tier = sessionTier(s);
         const label = STATUS_TIERS.find((t) => t.tier === tier)!.label;
         newSessionProject = sectionCreateKey(label, g.id);
@@ -4311,8 +4202,9 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
       }
       // In a section view the create-input lives under the cursor session's
       // project sub-header within its section bucket, so scope the key to it.
-      if (SECTION_VIEW() && s && sections) {
-        const bucket = sections.find((b) => b.session_ids.includes(s.id));
+      const buckets = sections();
+      if (sectionView() && s && buckets) {
+        const bucket = buckets.find((b) => b.session_ids.includes(s.id));
         if (bucket) {
           newSessionProject = sectionCreateKey(bucket.name, g.id);
           collapsed.delete(`sect:${bucket.name}`);
@@ -4444,17 +4336,18 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
     label: "Collapse/expand cursor group",
     run: () => {
       const s = targetSession();
-      if (statusGrouping) {
+      if (statusGrouping()) {
         // Cursor session's tier, else the first tier that actually rendered.
         const tier = s
           ? sessionTier(s)
-          : STATUS_TIERS.find((t) => groups.some((g) => g.sessions.some((x) => sessionTier(x) === t.tier)))?.tier;
+          : STATUS_TIERS.find((t) => groups().some((g) => g.sessions.some((x) => sessionTier(x) === t.tier)))?.tier;
         if (tier) toggleCollapsed(`tier:${tier}`);
-      } else if (SECTION_VIEW() && sections) {
-        const b = s ? sections.find((b) => b.session_ids.includes(s.id)) : sections[0];
+      } else if (sectionView() && sections()) {
+        const buckets = sections()!;
+        const b = s ? buckets.find((b) => b.session_ids.includes(s.id)) : buckets[0];
         if (b) toggleCollapsed(`sect:${b.name}`);
       } else {
-        const g = s ? groupOf(s.id) : groups[0];
+        const g = s ? groupOf(s.id) : groups()[0];
         if (g) toggleCollapsed(`proj:${g.id}`);
       }
     },
@@ -4547,7 +4440,7 @@ void listen<Snapshot>("sessions-updated", (event) => applySnapshot(event.payload
 invoke<Snapshot>("get_groups")
   .then((snap) => {
     // The push loop may have rendered already; don't regress its richer data.
-    if (!groups.length) applySnapshot(snap);
+    if (!hasSnapshot()) applySnapshot(snap);
   })
   .catch((e) => {
     sessionsEl.innerHTML = `<div class="error">Error: ${e}</div>`;
