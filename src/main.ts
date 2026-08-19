@@ -45,6 +45,47 @@ import { openThemeModal } from "./themeModal";
 import { createHarnessPicker, createSessionDialog, rememberHarness } from "./harnessPicker";
 import { featurePalette, featureActions, onFeatureChange } from "./features";
 import "./featureList";
+import type {
+  SessionRow,
+  ProjectGroup,
+  SectionBucket,
+  Snapshot,
+  SessionDetail,
+} from "./app/types";
+import {
+  sessionsEl,
+  tabsEl,
+  terminalsEl,
+  placeholderEl,
+  detailEl,
+  detailTitleEl,
+  detailMetaEl,
+  detailChangesEl,
+  detailDiffstatEl,
+  detailSummaryEl,
+  detailTagsEl,
+  summaryGenEl,
+  detailReviewEl,
+  detailPrEl,
+  onboardingEl,
+  onboardingAddProjectBtn,
+  onboardingCommanderBtn,
+  appEl,
+  tbCount,
+  tbAttention,
+  tbConsole,
+  tbBoard,
+  commanderChip,
+  boardEl,
+  boardFilterEl,
+  boardColumnsEl,
+  boardDockEl,
+  boardDockSurfaceEl,
+  boardDockPlaceholderEl,
+  boardDockNameEl,
+  boardDockBranchEl,
+  boardDockBackdropEl,
+} from "./app/elements";
 
 // Apply the GUI theme (CSS custom properties) before any dynamic content renders,
 // then follow the OS appearance via the native Tauri theme event when in System mode.
@@ -133,63 +174,6 @@ async function exportThemeTemplate(): Promise<void> {
   }
 }
 
-type SessionRow = {
-  id: string;
-  title: string;
-  branch: string;
-  status: string;
-  program: string;
-  agent_state: string;
-  tmux_session_name: string;
-  pr_number: number | null;
-  pr_url: string | null;
-  pr_state: "open" | "closed" | "merged" | null;
-  pr_draft: boolean;
-  pr_labels: string[];
-  review_decision: string | null;
-  has_pending_comments: boolean;
-  unread: boolean;
-  hibernated: boolean;
-  stacked_child: boolean;
-  project_id: string;
-  project_name: string;
-  current_section: string | null;
-};
-
-type ProjectGroup = {
-  id: string;
-  name: string;
-  repo_path: string;
-  pull_blocked: string | null;
-  sessions: SessionRow[];
-};
-
-type SectionBucket = { name: string; session_ids: string[] };
-
-type Snapshot = {
-  groups: ProjectGroup[];
-  sections: SectionBucket[] | null;
-  section_names: string[];
-  commander: { enabled: boolean; running: boolean };
-};
-
-type SessionDetail = {
-  id: string;
-  title: string;
-  branch: string;
-  status: string;
-  program: string;
-  project_name: string;
-  pr_number: number | null;
-  pr_url: string | null;
-  pr_state: string;
-  pr_draft: boolean;
-  created_at: string;
-  agent_state: string;
-  diff_stat: string | null;
-};
-
-const sessionsEl = document.querySelector<HTMLDivElement>("#sessions")!;
 // Native listbox navigation when the sidebar list itself holds focus: bare
 // ↑/↓ walk the cursor and Enter opens, matching the ARIA listbox pattern for
 // keyboard/AT users. The global Cmd+Opt+↑/↓ chords still work regardless of
@@ -208,19 +192,6 @@ sessionsEl.addEventListener("keydown", (e) => {
     if (s) void openTerminal(s);
   }
 });
-const tabsEl = document.querySelector<HTMLDivElement>("#tabs")!;
-const terminalsEl = document.querySelector<HTMLDivElement>("#terminals")!;
-const placeholderEl = document.querySelector<HTMLDivElement>("#placeholder")!;
-const detailEl = document.querySelector<HTMLElement>("#detail")!;
-const detailTitleEl = document.querySelector<HTMLSpanElement>("#detail-title")!;
-const detailMetaEl = document.querySelector<HTMLDListElement>("#detail-meta")!;
-const detailChangesEl = document.querySelector<HTMLDivElement>("#detail-changes-label")!;
-const detailDiffstatEl = document.querySelector<HTMLDivElement>("#detail-diffstat")!;
-const detailSummaryEl = document.querySelector<HTMLDivElement>("#detail-summary")!;
-const detailTagsEl = document.querySelector<HTMLDivElement>("#detail-tags")!;
-const summaryGenEl = document.querySelector<HTMLButtonElement>("#summary-gen")!;
-const detailReviewEl = document.querySelector<HTMLButtonElement>("#detail-review")!;
-const detailPrEl = document.querySelector<HTMLButtonElement>("#detail-pr")!;
 
 // ---------------------------------------------------------------- terminals
 
@@ -3221,9 +3192,6 @@ document.querySelector<HTMLButtonElement>("#sidebar-menu")!.addEventListener("cl
 // the freshly attached terminal (see updatePlaceholder). No persisted flag;
 // purely driven by the live snapshot (applySnapshot) and terminal attach/detach.
 
-const onboardingEl = document.querySelector<HTMLDivElement>("#onboarding")!;
-const onboardingAddProjectBtn = document.querySelector<HTMLButtonElement>("#onboarding-add-project")!;
-const onboardingCommanderBtn = document.querySelector<HTMLButtonElement>("#onboarding-commander")!;
 let commanderEnabled = false; // mirrors renderCommander's gate; set in applySnapshot
 
 /** First-run hero state: no projects and nothing attached. */
@@ -3274,21 +3242,8 @@ onboardingCommanderBtn.addEventListener("click", () => commanderChip.click());
 
 // ----------------------------------------------------------------- title bar
 
-const appEl = document.querySelector<HTMLElement>("#app")!;
-const boardEl = document.querySelector<HTMLElement>("#board")!;
-const boardFilterEl = document.querySelector<HTMLDivElement>("#board-filter")!;
-const boardColumnsEl = document.querySelector<HTMLDivElement>("#board-columns")!;
-const boardDockEl = document.querySelector<HTMLDivElement>("#board-dock")!;
-const boardDockSurfaceEl = document.querySelector<HTMLDivElement>("#board-dock-surface")!;
-const boardDockPlaceholderEl = document.querySelector<HTMLDivElement>("#board-dock-placeholder")!;
-const boardDockNameEl = document.querySelector<HTMLSpanElement>("#board-dock-name")!;
-const boardDockBranchEl = document.querySelector<HTMLSpanElement>("#board-dock-branch")!;
-const tbCount = document.querySelector<HTMLElement>("#tb-count")!;
-const tbAttention = document.querySelector<HTMLElement>("#tb-attention")!;
 // The board's mirror of the attention pill; created with the filter bar.
 let boardAttentionEl: HTMLSpanElement | null = null;
-const tbConsole = document.querySelector<HTMLButtonElement>("#tb-console")!;
-const tbBoard = document.querySelector<HTMLButtonElement>("#tb-board")!;
 
 /** Sessions waiting on the user: the agent asked for input, or finished while
  *  away (unread) — the at-a-glance attention queue, in sidebar snapshot order.
@@ -3407,7 +3362,6 @@ document.querySelector<HTMLButtonElement>("#board-dock-close")!.addEventListener
 // backdrop — obviously a dismissable dialog, not a panel that ate the window.
 // Toggling clears any drag-set inline height so the overlay's CSS size wins, and
 // re-fits the xterm into the new surface.
-const boardDockBackdropEl = document.querySelector<HTMLDivElement>("#board-dock-backdrop")!;
 function setDockFullscreen(on: boolean): void {
   boardDockEl.classList.toggle("dock-fullscreen", on);
   boardDockBackdropEl.classList.toggle("hidden", !on);
@@ -3443,7 +3397,6 @@ makeResizable({
 
 // ------------------------------------------------------------ commander chip
 
-const commanderChip = document.querySelector<HTMLElement>("#commander-chip")!;
 
 function renderCommander(c: Snapshot["commander"]): void {
   commanderChip.classList.toggle("hidden", !c.enabled);
