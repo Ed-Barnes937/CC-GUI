@@ -99,7 +99,41 @@ pub async fn list_session_dir(
     })
 }
 
-const MD_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build", ".git"];
+/// Directories the markdown walk never descends into: dependency and build
+/// output, plus the dot-directories tooling generates. Everything else is
+/// walked, hidden or not, so a project's own dot-directory of docs
+/// (`.claude`, `.scratch`, …) is listed without needing an entry here.
+const MD_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    ".tox",
+    ".nox",
+    ".eggs",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".cache",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".parcel-cache",
+    ".angular",
+    ".dart_tool",
+    ".gradle",
+    ".terraform",
+    ".direnv",
+    ".yarn",
+    ".pnpm-store",
+    ".bundle",
+    ".cargo",
+    ".rustup",
+];
 const MD_MAX_FILES: usize = 500;
 const MD_MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -123,9 +157,8 @@ pub struct MarkdownListing {
 }
 
 /// Recursively list every `*.md` under a session's worktree for the markdown
-/// viewer, skipping dependency/build directories (and hidden directories
-/// except `.claude`, where plan/skill docs live), flagging the ones the
-/// session's branch changed.
+/// viewer, skipping the dependency/build and tooling directories in
+/// `MD_SKIP_DIRS`, flagging the ones the session's branch changed.
 ///
 /// Ordering here exists only so the `MD_MAX_FILES` cap can never cut a
 /// relevant doc: changed-on-branch first, then newest by mtime. The viewer's
@@ -200,9 +233,7 @@ fn collect_markdown_files(root: &Path) -> Vec<MarkdownFile> {
             let path = e.path();
             let Ok(ft) = e.file_type() else { continue };
             if ft.is_dir() {
-                if !MD_SKIP_DIRS.contains(&name.as_str())
-                    && (!name.starts_with('.') || name == ".claude")
-                {
+                if !MD_SKIP_DIRS.contains(&name.as_str()) {
                     stack.push(path);
                 }
             } else if name.to_lowercase().ends_with(".md") {
@@ -321,23 +352,35 @@ mod tests {
     fn collect_markdown_files_skips_noise_and_sorts_relevant_first() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        for d in ["docs", "node_modules", ".claude", ".hidden"] {
+        for d in ["docs", "node_modules", ".claude", ".scratch", ".venv"] {
             fs::create_dir(root.join(d)).unwrap();
         }
         fs::write(root.join("README.md"), "").unwrap();
         fs::write(root.join("docs/plan.md"), "").unwrap();
         fs::write(root.join(".claude/skill.md"), "").unwrap();
+        fs::write(root.join(".scratch/notes.md"), "").unwrap();
         fs::write(root.join("node_modules/dep.md"), "").unwrap();
-        fs::write(root.join(".hidden/nope.md"), "").unwrap();
+        fs::write(root.join(".venv/nope.md"), "").unwrap();
         fs::write(root.join("notes.txt"), "").unwrap();
-        set_mtime(&root.join("docs/plan.md"), 0);
+        set_mtime(&root.join(".scratch/notes.md"), 0);
+        set_mtime(&root.join("docs/plan.md"), 50);
         set_mtime(&root.join("README.md"), 100);
         set_mtime(&root.join(".claude/skill.md"), 200);
 
         let mut files = collect_markdown_files(&root);
         sort_by_relevance(&mut files);
         let paths: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["docs/plan.md", "README.md", ".claude/skill.md"]);
+        // Hidden directories are walked (`.scratch`, `.claude`); only
+        // `MD_SKIP_DIRS` entries are pruned.
+        assert_eq!(
+            paths,
+            [
+                ".scratch/notes.md",
+                "docs/plan.md",
+                "README.md",
+                ".claude/skill.md"
+            ]
+        );
         assert!(files[0].mtime >= files[1].mtime);
 
         // A branch-changed doc outranks newer untouched ones, so the cap can
