@@ -9,7 +9,7 @@ import {
   registerCustomThemes,
   allThemes,
   type Theme,
-} from "./theme";
+} from "./index";
 
 const MOCHA = THEMES["catppuccin-mocha"];
 const NORD = THEMES["nord"];

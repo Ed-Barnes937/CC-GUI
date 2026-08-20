@@ -33,7 +33,7 @@ import "./chrome/titlebar";
 import "./chrome/commander";
 import "./chrome/onboarding";
 import "./commands";
-import "./theming";
+import "./theme/custom";
 import "./featureList";
 
 // Apply the GUI theme (CSS custom properties) before any dynamic content renders,

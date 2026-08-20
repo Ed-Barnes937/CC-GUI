@@ -1,11 +1,11 @@
 // Loading user-authored themes from disk, and writing a template out.
 //
-// The GUI owns its theming (theme.ts) and never touches the
+// The GUI owns its theming (./index.ts) and never touches the
 // claude-commander config; this is only the file-system half -- reading
 // ~/.config/claude-commander/themes and registering what validates.
 
 import { invoke } from "@tauri-apps/api/core";
-import { toast, promptDialog } from "./toast";
+import { toast, promptDialog } from "../toast";
 import {
   applyTheme,
   currentTheme,
@@ -13,7 +13,7 @@ import {
   resolveTheme,
   validateTheme,
   type Theme,
-} from "./theme";
+} from "./index";
 
 // Load user-authored themes from disk, register the valid ones, and re-apply if a
 // custom theme now occupies the active light/dark slot. Runs after initTheme() so

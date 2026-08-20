@@ -15,7 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast, confirmDialog } from "./toast";
 import { noTextAssist } from "./dom";
 import { getMode, setMode, type Mode } from "./theme";
-import { openThemeModal } from "./themeModal";
+import { openThemeModal } from "./theme/modal";
 import { allFeatures, isEnabled, setEnabled } from "./features";
 
 type Config = Record<string, unknown>;

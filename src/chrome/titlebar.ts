@@ -7,7 +7,7 @@ import { toast } from "../toast";
 import { toggleHelp } from "../help";
 import { togglePalette } from "../palette";
 import { currentTheme } from "../theme";
-import { openThemeModal } from "../themeModal";
+import { openThemeModal } from "../theme/modal";
 import { registerView } from "../app/render";
 import { tbAttention, tbBoard, tbConsole, tbCount } from "../app/elements";
 import { groups } from "../app/store";

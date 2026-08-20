@@ -27,7 +27,7 @@ import {
 import { openSettings } from "./settings";
 import { STATUS_TIERS, stateChipInfo } from "./status";
 import { setMode } from "./theme";
-import { openThemeModal } from "./themeModal";
+import { openThemeModal } from "./theme/modal";
 import { featureActions, featurePalette, onFeatureChange } from "./features";
 import { findSession, groupOf, groups, sectionView, sections, statusGrouping } from "./app/store";
 import { invokeToast, lifecycle } from "./app/actions";
@@ -56,7 +56,7 @@ import {
   toggleCollapsed,
 } from "./sidebar/state";
 import { deleteMergedSessions } from "./sidebar/menus";
-import { exportThemeTemplate, loadCustomThemes } from "./theming";
+import { exportThemeTemplate, loadCustomThemes } from "./theme/custom";
 
 export function cycleSession(delta: number): void {
   // Seed the cursor from the active terminal so the first press moves relative
