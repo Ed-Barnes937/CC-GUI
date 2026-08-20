@@ -41,22 +41,60 @@ re-derives `PATH` from the login shell at startup (so child processes like
 
 ### Frontend (`src/`)
 
-- **`main.ts`** — boot + wiring: theme init, terminals, palette commands, session rendering, window events.
+`main.ts` is boot only: it imports the view modules (each registers itself as
+it loads) and starts the snapshot listener. The layers below it run
+bottom-up — nothing in `app/` imports a view, and no view imports another.
+
+- **`app/`** — the layer everything else sits on. `types.ts` (the shapes the
+  backend pushes), `elements.ts` (the static chrome from `index.html`),
+  `store.ts` (the current snapshot, the GUI-owned prefs, the optimistic
+  delete/rename masks, and `applySnapshot`), `render.ts` (views register a
+  renderer under a name; callers ask for a name via `requestRender`), and
+  `actions.ts` (the invoke/catch/refresh wrappers).
+- **`terminal/`** — `state.ts` (which terminals exist and where),
+  `surface.ts` (the single/split/docked state machine), `attach.ts` (xterm +
+  the PTY channel), `tabs.ts`, `restart.ts` (crash-loop guard).
+- **`session/`** — what the sidebar and the board share: `row.ts` (row/card
+  parts and the shared context menu), `selection.ts` (one keyboard cursor,
+  drawn on both surfaces), `glyph.ts` (SessionRow → status vocabulary),
+  `detail.ts`, `diffstat.ts`, `create.ts`.
+- **`sidebar/`**, **`board/`** — the two session surfaces. Each has a
+  `state.ts` its render modules share, so they don't import each other.
+- **`chrome/`** — `titlebar.ts`, `attention.ts` (the queue behind both
+  attention pills), `layout.ts` (the Console/Board swap), `commander.ts`,
+  `onboarding.ts`.
+- **`commands.ts`** — one `KEY_ACTIONS` table backing the palette, the
+  configurable keybindings, and the accelerators that must beat xterm.
 - **`palette.ts`** — `Cmd/Ctrl+K` fuzzy command/session palette.
-- **`review.ts`** — diff rendering + inline review comments (via `@pierre/diffs`).
-- **`theme.ts`** — GUI-owned theming: `Theme` type, built-in + custom registry, `applyTheme`/`onThemeChange`/`setMode`/`followSystem`. Kept Tauri-free so it's also imported by the no-flash boot plugin in `vite.config.ts`.
-- **`themeModal.ts`** — the live-preview theme picker.
-- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, config UI.
+- **`review/`** — the diff panel. `model.ts`/`pierre.ts` are the pure halves
+  (unit-tested); `host.ts` owns the `@pierre/diffs` component and its caches,
+  `state.ts` the open review plus a four-pane redraw registry, and `index.ts`
+  the lifecycle and the diff pane. `files.ts`, `comments.ts`, `images.ts` and
+  `apply.ts` render one region each and redraw through `state.ts`.
+- **`theme/`** — GUI-owned theming: `types.ts` (the `Theme` shape),
+  `palettes.ts` (the built-in literals), `validate.ts` (a user's theme file →
+  a `Theme`), `index.ts` (the registry, the prefs, `applyTheme`/`onThemeChange`).
+  Kept Tauri-free so it's also imported by the no-flash boot plugin in
+  `vite.config.ts`. `modal.ts` is the live-preview picker and `custom.ts` loads
+  user-authored themes from disk.
+- **`settings/`** — the settings modal: `schema.ts` (every setting, declared),
+  `controls.ts` (one field → one control), `sections.ts`, `panels.ts` (the
+  GUI-only Features/Appearance tabs), `state.ts`, `shell.ts`, `index.ts`.
+- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `drag.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, the shared pointer drag gesture.
 - **`features.ts`, `featureList.ts`** — the optional-feature registry: features
   that not every user wants, contributing palette entries and keybindings and
   toggled in Settings → Features. See
   [ADR-0008](docs/adr/0008-optional-feature-registry.md); register a new one in
-  `featureList.ts`, not in `main.ts`.
+  `featureList.ts`, not in `commands.ts`.
+
+Adding a view: register its renderer with `registerView`, read state from
+`app/store.ts`, and ask for redraws with `requestRender` rather than calling
+another view's render function.
 
 ## Theming
 
 The GUI owns its theming independently of `claude-commander` config — it never
-writes `settings.ts`/`save_config`; preferences live in localStorage
+writes the commander config (`save_config`); preferences live in localStorage
 (`cc-theme-mode`, `cc-theme-light`, `cc-theme-dark`). Three surfaces are themed:
 CSS chrome (semantic tokens in `style.css`), the xterm terminal (full `ITheme`),
 and Shiki diff highlighting. Authoring guide: [`docs/theming.md`](docs/theming.md).

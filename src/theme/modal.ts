@@ -19,7 +19,7 @@ import {
   getMode,
   setMode,
   type Appearance,
-} from "./theme";
+} from "./index";
 
 // Swatch roles shown per row — a quick read of each theme: its canvas, its body
 // text on that canvas (so the core readability contrast is visible, not just two
