@@ -66,10 +66,21 @@ bottom-up — nothing in `app/` imports a view, and no view imports another.
 - **`commands.ts`** — one `KEY_ACTIONS` table backing the palette, the
   configurable keybindings, and the accelerators that must beat xterm.
 - **`palette.ts`** — `Cmd/Ctrl+K` fuzzy command/session palette.
-- **`review.ts`** — diff rendering + inline review comments (via `@pierre/diffs`).
-- **`theme.ts`** — GUI-owned theming: `Theme` type, built-in + custom registry, `applyTheme`/`onThemeChange`/`setMode`/`followSystem`. Kept Tauri-free so it's also imported by the no-flash boot plugin in `vite.config.ts`.
-- **`themeModal.ts`, `theming.ts`** — the live-preview theme picker, and loading user-authored themes from disk.
-- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `drag.ts`, `settings.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, the shared pointer drag gesture, config UI.
+- **`review/`** — the diff panel. `model.ts`/`pierre.ts` are the pure halves
+  (unit-tested); `host.ts` owns the `@pierre/diffs` component and its caches,
+  `state.ts` the open review plus a four-pane redraw registry, and `index.ts`
+  the lifecycle and the diff pane. `files.ts`, `comments.ts`, `images.ts` and
+  `apply.ts` render one region each and redraw through `state.ts`.
+- **`theme/`** — GUI-owned theming: `types.ts` (the `Theme` shape),
+  `palettes.ts` (the built-in literals), `validate.ts` (a user's theme file →
+  a `Theme`), `index.ts` (the registry, the prefs, `applyTheme`/`onThemeChange`).
+  Kept Tauri-free so it's also imported by the no-flash boot plugin in
+  `vite.config.ts`. `modal.ts` is the live-preview picker and `custom.ts` loads
+  user-authored themes from disk.
+- **`settings/`** — the settings modal: `schema.ts` (every setting, declared),
+  `controls.ts` (one field → one control), `sections.ts`, `panels.ts` (the
+  GUI-only Features/Appearance tabs), `state.ts`, `shell.ts`, `index.ts`.
+- **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `drag.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, the shared pointer drag gesture.
 - **`features.ts`, `featureList.ts`** — the optional-feature registry: features
   that not every user wants, contributing palette entries and keybindings and
   toggled in Settings → Features. See
@@ -83,7 +94,7 @@ another view's render function.
 ## Theming
 
 The GUI owns its theming independently of `claude-commander` config — it never
-writes `settings.ts`/`save_config`; preferences live in localStorage
+writes the commander config (`save_config`); preferences live in localStorage
 (`cc-theme-mode`, `cc-theme-light`, `cc-theme-dark`). Three surfaces are themed:
 CSS chrome (semantic tokens in `style.css`), the xterm terminal (full `ITheme`),
 and Shiki diff highlighting. Authoring guide: [`docs/theming.md`](docs/theming.md).
