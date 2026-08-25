@@ -14,9 +14,11 @@ test.use({
         { name: ".hidden", is_dir: false, size: 10 },
       ],
       src: [
+        { name: "theme", is_dir: true, size: 0 },
         { name: "main.ts", is_dir: false, size: 5000 },
         { name: "review.ts", is_dir: false, size: 3000 },
       ],
+      "src/theme": [{ name: "palettes.ts", is_dir: false, size: 900 }],
     },
   },
 });
@@ -50,6 +52,7 @@ test("opening a file writes an @path reference into the active terminal and clos
 }) => {
   await fileExplorer.open();
   await fileExplorer.press("Enter"); // into src/
+  await fileExplorer.press("ArrowDown"); // past theme/, onto the first file
   expect(await fileExplorer.cursorName()).toBe("main.ts");
 
   await fileExplorer.press("Enter"); // reference the file
@@ -61,23 +64,78 @@ test("opening a file writes an @path reference into the active terminal and clos
   });
 });
 
-test("the . key toggles hidden files", async ({ fileExplorer }) => {
+test("Ctrl+. toggles hidden files", async ({ fileExplorer }) => {
   await fileExplorer.open();
   await expect(fileExplorer.row(".hidden")).toHaveCount(0);
 
-  await fileExplorer.press(".");
+  await fileExplorer.press("Control+.");
 
   await expect(fileExplorer.row(".hidden")).toBeVisible();
 });
 
-test("/ filters the current directory", async ({ fileExplorer }) => {
+test("typing fuzzy-searches the whole repo, not just the open folder", async ({ fileExplorer }) => {
   await fileExplorer.open();
 
-  await fileExplorer.press("/");
-  await fileExplorer.type("read");
+  // "plts" is a subsequence of palettes.ts, two folders below the root.
+  await fileExplorer.type("plts");
 
   await expect(fileExplorer.rows()).toHaveCount(1);
-  await expect(fileExplorer.row("README.md")).toBeVisible();
+  await expect(fileExplorer.row("src/theme/palettes.ts")).toBeVisible();
+  expect(await fileExplorer.cursorName()).toBe("palettes.ts");
+});
+
+test("a search hit on a file references its full path from the repo root", async ({
+  fileExplorer,
+}) => {
+  await fileExplorer.open();
+  await fileExplorer.type("plts");
+
+  await fileExplorer.press("Enter");
+
+  await expect(fileExplorer.paneLocator()).toBeHidden();
+  expect(await fileExplorer.ptyWrites()).toContainEqual({
+    tmuxSession: TMUX,
+    data: "@src/theme/palettes.ts ",
+  });
+});
+
+test("a search hit on a folder navigates there and clears the search", async ({ fileExplorer }) => {
+  await fileExplorer.open();
+  await fileExplorer.type("theme");
+
+  await fileExplorer.press("Enter");
+
+  await expect(fileExplorer.row("palettes.ts")).toBeVisible();
+  expect(await fileExplorer.crumbsText()).toContain("theme");
+  await expect(fileExplorer.searchLocator()).toBeHidden();
+});
+
+test("Backspace deletes search characters, then Esc drops back to browsing", async ({
+  fileExplorer,
+}) => {
+  await fileExplorer.open();
+  await fileExplorer.type("readme");
+  await expect(fileExplorer.rows()).toHaveCount(1);
+
+  // Widening the query by a character brings other paths back.
+  await fileExplorer.press("Backspace");
+  await expect(fileExplorer.searchLocator()).toHaveText("⌕ readm");
+
+  await fileExplorer.press("Escape");
+
+  await expect(fileExplorer.searchLocator()).toBeHidden();
+  await expect(fileExplorer.paneLocator()).toBeVisible(); // Esc cleared, didn't close
+  await expect(fileExplorer.row("src")).toBeVisible();
+});
+
+test("hidden files stay out of the repo-wide search until toggled on", async ({ fileExplorer }) => {
+  await fileExplorer.open();
+  await fileExplorer.type("hidden");
+  await expect(fileExplorer.row(".hidden")).toHaveCount(0);
+
+  await fileExplorer.press("Control+.");
+
+  await expect(fileExplorer.row(".hidden")).toBeVisible();
 });
 
 test("Backspace navigates up to the parent", async ({ fileExplorer }) => {

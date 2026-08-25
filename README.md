@@ -12,7 +12,7 @@ It embeds `claude-commander` directly (as a library) and drives the same tmux-ba
 - **Code review** — read-only diff view with inline comments; stage comments and **Apply** them back to the agent.
 - **Cascade** — merge, resume, and abandon stacked sessions; push a stack.
 - **Theming** — 10 built-in themes plus your own custom themes, with a live-preview picker. See [`docs/theming.md`](docs/theming.md).
-- **File explorer** (`Cmd+E`) — keyboard-driven, nnn-style browser of the active session's repo; open a file to drop an `@path` reference into the terminal.
+- **File explorer** (`Cmd+E`) — keyboard-driven, nnn-style browser of the active session's repo; start typing to fuzzy-search every path in the repo, and open a file to drop an `@path` reference into the terminal.
 - **Markdown viewer** (`Cmd+M`) — distraction-free reader for the active session's repo docs (plans, design docs, READMEs). Opens on the doc the session's branch changed most recently (else README), stays live while the agent keeps writing, and has a fuzzy file picker (`/`) plus in-repo link navigation.
 - **Command palette** (`Cmd/Ctrl+K`) — fuzzy-jump to a session or run any command.
 - **Config hot-reload** — picks up `claude-commander` config changes for multi-instance sync.
@@ -117,9 +117,11 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Previous / next terminal tab | `Cmd+Opt+←` / `Cmd+Opt+→` |
 | Previous / next session (attaches it) | `Cmd+Opt+↑` / `Cmd+Opt+↓` |
 | Open/close file explorer (active session's repo) | `Cmd/Ctrl+E` |
-| File explorer: move cursor | `↑`/`↓` or `j`/`k` |
-| File explorer: open folder / reference file as `@path` | `Enter` / `→` / `l` |
-| File explorer: up to parent / filter / toggle hidden | `Backspace` / `/` / `.` |
+| File explorer: fuzzy-search the whole repo | type anything (`Esc` clears) |
+| File explorer: move cursor | `↑`/`↓` |
+| File explorer: open folder / reference file as `@path` | `Enter` / `→` |
+| File explorer: delete a search character, or go up to parent | `Backspace` |
+| File explorer: toggle hidden files | `Ctrl/Cmd+.` |
 | Open/close markdown viewer (on the doc this session changed last, else README) | `Cmd/Ctrl+M` |
 | Markdown viewer: fuzzy file picker, changed docs first (`↑`/`↓` pick, `Enter` opens) | `/` or click the file name |
 | Terminal: switch to this session's shell | `Ctrl+\` |

@@ -3623,6 +3623,18 @@ body.resizing .row-divider {
   color: var(--accent);
 }
 
+/* Search hits lead with the directories above them, dimmed so the file name
+   the query matched still reads first. */
+.fx-row .fx-parent {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
 .fx-row .fx-size {
   font-family: var(--font-mono);
   font-size: 11px;
