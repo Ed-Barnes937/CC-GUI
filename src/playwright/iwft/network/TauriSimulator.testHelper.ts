@@ -268,6 +268,8 @@ class TauriSimulator {
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);
+      case "list_session_tree":
+        return this.listSessionTree(args.showHidden as boolean);
       case "list_markdown_files": {
         // Mirrors the backend (files.rs MD_MAX_FILES): branch-changed docs
         // first, then newest — the ordering exists so the cap can only drop the
@@ -514,6 +516,27 @@ class TauriSimulator {
         return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
       });
     return { rel_path: subPath, at_root: subPath === "", entries };
+  }
+
+  /** Every path in the fake file tree, walked from the root — mirroring the
+   *  backend's list_session_tree (which the explorer's repo-wide search ranks
+   *  over). No cap here: seeds are small, so `total` always equals the length. */
+  private listSessionTree(showHidden: boolean): {
+    entries: { path: string; is_dir: boolean; size: number }[];
+    total: number;
+  } {
+    const entries: { path: string; is_dir: boolean; size: number }[] = [];
+    const walk = (dir: string) => {
+      for (const e of this.fileTree[dir] ?? []) {
+        if (!showHidden && e.name.startsWith(".")) continue;
+        const path = dir ? `${dir}/${e.name}` : e.name;
+        entries.push({ path, is_dir: e.is_dir, size: e.size });
+        if (e.is_dir) walk(path);
+      }
+    };
+    walk("");
+    entries.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
+    return { entries, total: entries.length };
   }
 
   private openReview(id: string): ReviewSnapshot {

@@ -114,6 +114,7 @@ fn main() {
             projects::open_in_editor,
             projects::open_external,
             files::list_session_dir,
+            files::list_session_tree,
             files::list_markdown_files,
             files::read_session_file,
             files::read_session_image,

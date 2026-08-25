@@ -99,11 +99,12 @@ pub async fn list_session_dir(
     })
 }
 
-/// Directories the markdown walk never descends into: dependency and build
-/// output, plus the dot-directories tooling generates. Everything else is
-/// walked, hidden or not, so a project's own dot-directory of docs
-/// (`.claude`, `.scratch`, …) is listed without needing an entry here.
-const MD_SKIP_DIRS: &[&str] = &[
+/// Directories the recursive walks (markdown listing, explorer tree) never
+/// descend into: dependency and build output, plus the dot-directories tooling
+/// generates. Everything else is walked, hidden or not, so a project's own
+/// dot-directory of docs (`.claude`, `.scratch`, …) is reachable without
+/// needing an entry here.
+const SKIP_DIRS: &[&str] = &[
     "node_modules",
     "target",
     "dist",
@@ -158,7 +159,7 @@ pub struct MarkdownListing {
 
 /// Recursively list every `*.md` under a session's worktree for the markdown
 /// viewer, skipping the dependency/build and tooling directories in
-/// `MD_SKIP_DIRS`, flagging the ones the session's branch changed.
+/// `SKIP_DIRS`, flagging the ones the session's branch changed.
 ///
 /// Ordering here exists only so the `MD_MAX_FILES` cap can never cut a
 /// relevant doc: changed-on-branch first, then newest by mtime. The viewer's
@@ -233,7 +234,7 @@ fn collect_markdown_files(root: &Path) -> Vec<MarkdownFile> {
             let path = e.path();
             let Ok(ft) = e.file_type() else { continue };
             if ft.is_dir() {
-                if !MD_SKIP_DIRS.contains(&name.as_str()) {
+                if !SKIP_DIRS.contains(&name.as_str()) {
                     stack.push(path);
                 }
             } else if name.to_lowercase().ends_with(".md") {
@@ -264,6 +265,90 @@ fn sort_by_relevance(files: &mut [MarkdownFile]) {
             .then_with(|| b.mtime.cmp(&a.mtime))
             .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
     });
+}
+
+/// One file or directory in the explorer's recursive tree listing.
+#[derive(Serialize)]
+pub struct TreeEntry {
+    /// Path relative to the worktree root, `/` separators, no leading slash.
+    path: String,
+    is_dir: bool,
+    /// 0 for directories.
+    size: u64,
+}
+
+/// Every path under a session's worktree, for the explorer's repo-wide search.
+#[derive(Serialize)]
+pub struct TreeListing {
+    entries: Vec<TreeEntry>,
+    /// Total paths found before the cap; greater than `entries.len()` when the
+    /// walk was truncated, so the explorer can say the search is partial.
+    total: usize,
+}
+
+/// Cap on paths returned by `list_session_tree`. Generous enough that a normal
+/// repo is listed whole; a backstop against a pathological tree filling the
+/// webview. Unlike the markdown listing there is no relevance order to keep the
+/// cap honest — the frontend scores what it gets — so the explorer tells the
+/// user when it truncated.
+const TREE_MAX_ENTRIES: usize = 20_000;
+
+/// Recursively list every file and directory under a session's worktree, for
+/// the explorer's type-to-search. Skips the dependency/build directories in
+/// `SKIP_DIRS`, and dot-entries unless `show_hidden` (matching what
+/// `list_session_dir` shows at each level). Symlinked directories are listed
+/// but never descended into, so a link back up the tree can't loop the walk.
+#[tauri::command]
+pub async fn list_session_tree(
+    session_id: String,
+    show_hidden: bool,
+) -> Result<TreeListing, String> {
+    let root = session_root(&session_id).await?;
+    let mut entries = collect_tree(&root, show_hidden);
+    // Deterministic order so a truncated listing is at least stable between
+    // calls; the frontend re-sorts by fuzzy score.
+    entries.sort_by_key(|e| e.path.to_lowercase());
+    let total = entries.len();
+    entries.truncate(TREE_MAX_ENTRIES);
+    Ok(TreeListing { entries, total })
+}
+
+/// Walk `root` for every path (skip rules per `list_session_tree`).
+fn collect_tree(root: &Path, show_hidden: bool) -> Vec<TreeEntry> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in read.filter_map(|e| e.ok()) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !show_hidden && name.starts_with('.') {
+                continue;
+            }
+            let Ok(ft) = e.file_type() else { continue };
+            let path = e.path();
+            let is_dir = if ft.is_symlink() {
+                path.is_dir()
+            } else {
+                ft.is_dir()
+            };
+            if is_dir && !ft.is_symlink() && !SKIP_DIRS.contains(&name.as_str()) {
+                stack.push(path.clone());
+            }
+            let size = if is_dir {
+                0
+            } else {
+                e.metadata().map(|m| m.len()).unwrap_or(0)
+            };
+            out.push(TreeEntry {
+                path: rel_to_root(root, &path),
+                is_dir,
+                size,
+            });
+        }
+    }
+    out
 }
 
 /// Read one file inside a session's worktree (same escape guard as
@@ -371,7 +456,7 @@ mod tests {
         sort_by_relevance(&mut files);
         let paths: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
         // Hidden directories are walked (`.scratch`, `.claude`); only
-        // `MD_SKIP_DIRS` entries are pruned.
+        // `SKIP_DIRS` entries are pruned.
         assert_eq!(
             paths,
             [
@@ -392,6 +477,47 @@ mod tests {
             .changed_on_branch = true;
         sort_by_relevance(&mut files);
         assert_eq!(files[0].path, ".claude/skill.md");
+    }
+
+    #[test]
+    fn collect_tree_walks_recursively_and_honours_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        for d in ["src", "src/deep", "node_modules", ".claude"] {
+            fs::create_dir(root.join(d)).unwrap();
+        }
+        fs::write(root.join("README.md"), "hello").unwrap();
+        fs::write(root.join("src/main.ts"), "").unwrap();
+        fs::write(root.join("src/deep/leaf.ts"), "").unwrap();
+        fs::write(root.join("node_modules/dep.js"), "").unwrap();
+        fs::write(root.join(".claude/notes.md"), "").unwrap();
+
+        let paths = |show_hidden: bool| {
+            let mut t = collect_tree(&root, show_hidden);
+            t.sort_by(|a, b| a.path.cmp(&b.path));
+            t.into_iter().map(|e| e.path).collect::<Vec<_>>()
+        };
+
+        // Nested files are reached; node_modules is listed but not descended
+        // into; dot-entries are absent until asked for.
+        assert_eq!(
+            paths(false),
+            [
+                "README.md",
+                "node_modules",
+                "src",
+                "src/deep",
+                "src/deep/leaf.ts",
+                "src/main.ts",
+            ]
+        );
+        assert!(paths(true).contains(&".claude/notes.md".to_string()));
+
+        let tree = collect_tree(&root, false);
+        let readme = tree.iter().find(|e| e.path == "README.md").unwrap();
+        assert_eq!(readme.size, 5);
+        assert!(!readme.is_dir);
+        assert!(tree.iter().find(|e| e.path == "src").unwrap().is_dir);
     }
 
     #[test]

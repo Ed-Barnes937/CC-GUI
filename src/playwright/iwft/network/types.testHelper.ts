@@ -67,7 +67,9 @@ export type Seed = {
   /** Path the native folder picker (Browse…) returns; null models a cancel. */
   browsePath?: string | null;
   /** The file explorer's fake filesystem: directory contents keyed by path
-   *  relative to the session's repo root ("" = root). Answers list_session_dir. */
+   *  relative to the session's repo root ("" = root). Answers list_session_dir,
+   *  and — walked from the root — list_session_tree, which backs the
+   *  explorer's type-to-search. */
   fileTree?: Record<string, FsEntry[]>;
   /** The markdown viewer's fake repo: repo-relative .md path → file content
    *  (a bare string gets mtime 0 and no branch changes). `changedOnBranch`

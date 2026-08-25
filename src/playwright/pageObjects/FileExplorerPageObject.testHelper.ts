@@ -8,6 +8,7 @@ export class FileExplorerPageObject extends AppPageObject {
   private readonly list = this.page.locator("#fx-list");
   private readonly crumbs = this.page.locator("#fx-crumbs");
   private readonly count = this.page.locator("#fx-count");
+  private readonly search = this.page.locator("#fx-filter");
 
   paneLocator(): Locator {
     return this.pane;
@@ -28,7 +29,12 @@ export class FileExplorerPageObject extends AppPageObject {
     return this.step(`press: ${key}`, () => this.page.keyboard.press(key));
   }
 
-  /** Type a run of characters, one keydown each (drives filter mode). */
+  /** The "⌕ query" indicator — visible only while a repo-wide search is live. */
+  searchLocator(): Locator {
+    return this.search;
+  }
+
+  /** Type a run of characters, one keydown each (drives the repo-wide search). */
   type(text: string): Promise<void> {
     return this.step(`type: ${text}`, () => this.page.keyboard.type(text));
   }
