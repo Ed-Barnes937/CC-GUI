@@ -126,13 +126,16 @@ export async function attachTerminal(
   // preloaded font (see above) — the WebGL addon then takes over the paint.
   // WebGL contexts can be lost (GPU reset, tab backgrounded, driver hiccup);
   // dispose the addon on loss so xterm falls back to the DOM renderer instead
-  // of going blank.
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (e) {
-    console.warn("WebGL renderer unavailable, using DOM fallback", e);
+  // of going blank. Skipped under the iwft simulator, whose page objects read
+  // xterm's rendered text from the DOM — the canvas paint would blank it out.
+  if (!("__CC_SIM__" in window)) {
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (e) {
+      console.warn("WebGL renderer unavailable, using DOM fallback", e);
+    }
   }
 
   // Honor OSC 52: programs like Claude's TUI manage their own mouse selection
