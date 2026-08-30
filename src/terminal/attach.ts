@@ -10,6 +10,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { toast } from "../toast";
 import { draggable } from "../drag";
 import { currentTheme } from "../theme";
@@ -118,6 +119,21 @@ export async function attachTerminal(
     document.fonts.load('bold 13px "MesloLGS NF Embedded"'),
   ]).catch(() => {});
   term.open(surface);
+
+  // GPU-accelerated glyph rendering: keeps the terminal smooth when Claude's
+  // TUI streams long responses across several live tabs. Loaded *after* open()
+  // so xterm's initial font measurement runs against the DOM renderer with the
+  // preloaded font (see above) — the WebGL addon then takes over the paint.
+  // WebGL contexts can be lost (GPU reset, tab backgrounded, driver hiccup);
+  // dispose the addon on loss so xterm falls back to the DOM renderer instead
+  // of going blank.
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch (e) {
+    console.warn("WebGL renderer unavailable, using DOM fallback", e);
+  }
 
   // Honor OSC 52: programs like Claude's TUI manage their own mouse selection
   // and copy by emitting an OSC 52 clipboard sequence (this is what makes a
