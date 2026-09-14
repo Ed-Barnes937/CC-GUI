@@ -8,9 +8,8 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use claude_commander_core::git::{
-    check_pr_for_branch, is_gh_available, run_project_pull, PrCheckResult, PullOutcome,
+    check_pr_for_branch, is_gh_available, run_project_pull, PullOutcome,
 };
-use claude_commander_core::session::apply_assignment;
 use futures::StreamExt;
 
 use crate::service::service;
@@ -96,10 +95,16 @@ fn spawn_pr_loop() {
 }
 
 async fn poll_prs_once(svc: &claude_commander_core::api::CommanderService) {
+    // Adopt any branch renames first so this same sweep queries GitHub with
+    // the corrected `--head` name, mirroring the TUI's poll loop.
+    if let Err(e) = svc.reconcile_session_branches().await {
+        tracing::debug!("reconcile_session_branches failed: {e}");
+    }
     let sessions: Vec<(
         claude_commander_core::session::SessionId,
         String,
         std::path::PathBuf,
+        chrono::DateTime<chrono::Utc>,
     )> = {
         let state = svc.store().read().await;
         state
@@ -108,7 +113,12 @@ async fn poll_prs_once(svc: &claude_commander_core::api::CommanderService) {
             .filter(|s| s.status != claude_commander_core::session::SessionStatus::Creating)
             .filter_map(|s| {
                 let project = state.projects.get(&s.project_id)?;
-                Some((s.id, s.branch.clone(), project.repo_path.clone()))
+                Some((
+                    s.id,
+                    s.branch.clone(),
+                    project.repo_path.clone(),
+                    s.branch_owned_since(),
+                ))
             })
             .collect()
     };
@@ -117,8 +127,8 @@ async fn poll_prs_once(svc: &claude_commander_core::api::CommanderService) {
     }
 
     let results: Vec<_> = futures::stream::iter(sessions.into_iter().map(
-        |(session_id, branch, repo_path)| async move {
-            let result = check_pr_for_branch(&repo_path, &branch).await;
+        |(session_id, branch, repo_path, owned_since)| async move {
+            let result = check_pr_for_branch(&repo_path, &branch, owned_since).await;
             (session_id, result)
         },
     ))
@@ -126,66 +136,10 @@ async fn poll_prs_once(svc: &claude_commander_core::api::CommanderService) {
     .collect()
     .await;
 
-    let sections = svc.read_config().sections;
-    let now = chrono::Utc::now();
-    let _ = svc
-        .store()
-        .mutate(move |state| {
-            for (session_id, result) in &results {
-                let Some(session) = state.get_session_mut(session_id) else {
-                    continue;
-                };
-                match result {
-                    PrCheckResult::Found(info) => {
-                        session.pr_number = Some(info.number);
-                        session.pr_url = Some(info.url.clone());
-                        session.pr_state = Some(info.state);
-                        session.pr_draft = info.is_draft;
-                        session.pr_labels = info.labels.clone();
-                        session.pr_merged = info.merged();
-                        session.review_decision = info.review_decision;
-                        session.pr_reviewers = info.reviewers.clone();
-                        session.pr_base_branch = info.base_ref_name.clone();
-                    }
-                    PrCheckResult::NotFound => {
-                        // Authoritative "no PR" — clear cached fields.
-                        session.pr_number = None;
-                        session.pr_url = None;
-                        session.pr_state = None;
-                        session.pr_draft = false;
-                        session.pr_labels.clear();
-                        session.pr_merged = false;
-                        session.review_decision = None;
-                        session.pr_reviewers.clear();
-                        session.pr_base_branch = None;
-                    }
-                    PrCheckResult::FetchFailed => {
-                        // Transient (network/auth) — keep cached state.
-                    }
-                }
-            }
-            for session in state.sessions.values_mut() {
-                apply_assignment(session, &sections, now);
-            }
-        })
-        .await;
-
-    // Refresh tmux status bars with the new PR info (running sessions only),
-    // mirroring the TUI. Snapshot under the lock, then do async tmux I/O.
-    let updates: Vec<_> = {
-        let state = svc.store().read().await;
-        state
-            .sessions
-            .values()
-            .filter(|s| s.status == claude_commander_core::session::SessionStatus::Running)
-            .map(|s| (s.tmux_session_name.clone(), svc.status_bar_info(s, &state)))
-            .collect()
-    };
-    for (tmux_name, info) in &updates {
-        svc.session_manager()
-            .tmux
-            .configure_status_bar(tmux_name, info)
-            .await;
+    // Persist, re-run section assignment, and refresh tmux status bars —
+    // the same library path the TUI's poll loop uses.
+    if let Err(e) = svc.apply_pr_results(results).await {
+        tracing::debug!("apply_pr_results failed: {e}");
     }
 }
 
