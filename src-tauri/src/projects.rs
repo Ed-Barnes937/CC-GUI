@@ -10,7 +10,7 @@ use crate::service::{parse_project_id, parse_session_id, service, with_service};
 pub async fn add_project(path: String) -> Result<String, String> {
     let path = expand_tilde(&path);
     with_service(move |svc| async move {
-        svc.add_project(PathBuf::from(path))
+        svc.add_project(PathBuf::from(path), None)
             .await
             .map(|id| id.to_string())
             .map_err(|e| e.to_string())
@@ -45,8 +45,7 @@ pub async fn scan_directory(path: String) -> Result<ScanOutcome, String> {
         return Err(format!("not a directory: {}", dir.display()));
     }
     with_service(move |svc| async move {
-        svc.session_manager()
-            .scan_directory(&dir)
+        svc.scan_directory(&dir, None)
             .await
             .map(|r| ScanOutcome {
                 added: r.added,
