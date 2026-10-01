@@ -10,23 +10,79 @@
 // upstream moved view mode into a TUI-private prefs store the GUI can't reach,
 // so the GUI owns layout, grouping and view mode outright. The backend just
 // supplies section buckets; the frontend decides what to do with them.
+//
+// Workspaces are scoped HERE, not per view: groups() and sections() return only
+// the active workspace's projects and sessions, so every view, count and pill
+// is scoped for free and a future view can't forget to filter. The few callers
+// that must see everything (lookups by id or tmux name, first-run onboarding)
+// use allGroups() / the find* helpers, which search every workspace.
 
 import { renderAll, requestRender } from "./render";
-import type { ProjectGroup, SectionBucket, SessionRow, Snapshot } from "./types";
+import type { ProjectGroup, SectionBucket, SessionRow, Snapshot, WorkspaceEntry } from "./types";
+import { activeWorkspace, inWorkspace, reconcileActiveWorkspace } from "./workspaces";
 
 // ------------------------------------------------------------------ snapshot
+
+const MAIN_ONLY: WorkspaceEntry[] = [{ name: null, label: "Main" }];
 
 let groupList: ProjectGroup[] = [];
 let sectionBuckets: SectionBucket[] | null = null;
 let sectionNameList: string[] = [];
 let commander: Snapshot["commander"] = { enabled: false, running: false };
+let workspaceList: WorkspaceEntry[] = MAIN_ONLY;
+let startupChoice = "last";
 
+// The scoped views of the snapshot, computed once per (snapshot, workspace)
+// rather than on each of the many groups() calls a render makes. `version`
+// bumps whenever the raw data changes underneath.
+let version = 0;
+let scoped: {
+  version: number;
+  workspace: string | null;
+  groups: ProjectGroup[];
+  sections: SectionBucket[] | null;
+} | null = null;
+
+function scope(): NonNullable<typeof scoped> {
+  const workspace = activeWorkspace();
+  if (scoped && scoped.version === version && scoped.workspace === workspace) return scoped;
+  const groups = groupList.filter((g) => inWorkspace(g, workspace));
+  let sections: SectionBucket[] | null = null;
+  if (sectionBuckets) {
+    // build_sections returns every bucket (empty ones too) and orders within a
+    // bucket by per-session timestamp, so dropping other workspaces' ids
+    // afterwards gives exactly what filtering first would.
+    const ids = new Set(groups.flatMap((g) => g.sessions.map((s) => s.id)));
+    sections = sectionBuckets.map((b) => ({ ...b, session_ids: b.session_ids.filter((id) => ids.has(id)) }));
+  }
+  scoped = { version, workspace, groups, sections };
+  return scoped;
+}
+
+/** The active workspace's projects, in snapshot order. What every view shows. */
 export function groups(): ProjectGroup[] {
+  return scope().groups;
+}
+
+/** Every project in every workspace. Only for callers that must see past the
+ *  active workspace: lookups, first-run onboarding, workspace project counts. */
+export function allGroups(): ProjectGroup[] {
   return groupList;
 }
 
+/** The section buckets, holding only the active workspace's session ids. */
 export function sections(): SectionBucket[] | null {
-  return sectionBuckets;
+  return scope().sections;
+}
+
+/** Every workspace, Main first, in display order (the backend's merged list). */
+export function workspaces(): WorkspaceEntry[] {
+  return workspaceList;
+}
+
+/** The shared startup choice: "last", "main" or a workspace name. */
+export function startupWorkspace(): string {
+  return startupChoice;
 }
 
 export function sectionNames(): string[] {
@@ -48,6 +104,7 @@ export function hasSnapshot(): boolean {
 }
 let loaded = false;
 
+/** A session by id, in any workspace. */
 export function findSession(id: string): SessionRow | undefined {
   for (const g of groupList) {
     const s = g.sessions.find((s) => s.id === id);
@@ -56,8 +113,24 @@ export function findSession(id: string): SessionRow | undefined {
   return undefined;
 }
 
+/** A session by its tmux session name, in any workspace. */
+export function findSessionByTmux(name: string): SessionRow | undefined {
+  for (const g of groupList) {
+    const s = g.sessions.find((s) => s.tmux_session_name === name);
+    if (s) return s;
+  }
+  return undefined;
+}
+
+/** The project a session belongs to, in any workspace. */
 export function groupOf(sessionId: string): ProjectGroup | undefined {
   return groupList.find((g) => g.sessions.some((s) => s.id === sessionId));
+}
+
+/** Whether a session is in the active workspace (shown, as opposed to merely
+ *  known). */
+export function sessionInScope(id: string): boolean {
+  return groups().some((g) => g.sessions.some((s) => s.id === id));
 }
 
 // -------------------------------------------------------- optimistic masks
@@ -86,6 +159,15 @@ export function maskTitle(id: string, title: string): void {
 
 export function unmaskTitle(id: string): void {
   pendingTitles.delete(id);
+}
+
+/** Drop a session from the held snapshot right away (an optimistic delete,
+ *  alongside maskDeleted), so views redraw without it before the backend
+ *  confirms. */
+export function dropSession(id: string): void {
+  for (const g of groupList) g.sessions = g.sessions.filter((s) => s.id !== id);
+  if (sectionBuckets) for (const b of sectionBuckets) b.session_ids = b.session_ids.filter((x) => x !== id);
+  version++;
 }
 
 function applyPendingOverlays(snap: Snapshot): void {
@@ -122,8 +204,15 @@ export function applySnapshot(snap: Snapshot): void {
   sectionBuckets = snap.sections;
   sectionNameList = snap.section_names;
   commander = snap.commander;
+  workspaceList = snap.workspaces?.length ? snap.workspaces : MAIN_ONLY;
+  startupChoice = snap.startup_workspace ?? "last";
+  version++;
   loaded = true;
-  renderAll();
+  // A workspace deleted elsewhere falls back to Main before anything draws;
+  // that switch redraws everything itself, so don't draw twice.
+  const before = activeWorkspace();
+  reconcileActiveWorkspace(workspaceList);
+  if (activeWorkspace() === before) renderAll();
 }
 
 // --------------------------------------------------------------- preferences

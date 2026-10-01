@@ -62,6 +62,14 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     ],
   ],
   [
+    "Workspaces",
+    [
+      ["Workspace chip", "Switch workspace, create one, or manage them (shown once a second exists)"],
+      ["Cmd/Ctrl+K → Switch workspace", "Jump to another workspace from the palette"],
+      ["Other workspaces", "Hidden, not stopped: their sessions and terminals keep running"],
+    ],
+  ],
+  [
     "Board",
     [
       ["Arrow keys", "Move focus between cards and columns"],
@@ -75,6 +83,7 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
       ["Cmd/Ctrl+K", "Fuzzy palette: jump to session or run a command"],
       ["Cmd+W", "Close the active terminal tab (closes the window if none left)"],
       ["Cmd+1–9", "Jump to terminal tab by number"],
+      ["Cmd+Shift+1–9", "Switch to workspace by number"],
       ["Cmd+Opt+←/→", "Previous / next terminal tab"],
       ["Cmd+Opt+↑/↓", "Previous / next session (attaches it)"],
       ["Esc", "Clear the sidebar keyboard cursor"],

@@ -12,6 +12,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { onThemeChange } from "../theme";
 import { requestRender } from "../app/render";
 import { placeholderEl, tabsEl } from "../app/elements";
+import { allGroups } from "../app/store";
+import { activeWorkspace, inWorkspace } from "../app/workspaces";
 
 export type TermEntry = {
   term: Terminal;
@@ -22,6 +24,10 @@ export type TermEntry = {
   glyph: HTMLSpanElement;
   title: string;
   dead: boolean;
+  /** The project this terminal belongs to (a session's, a session shell's or
+   *  a project shell's), which decides the workspace it shows in. null = no
+   *  project (the commander): shown in every workspace. */
+  owner: string | null;
 };
 
 export const terminals = new Map<string, TermEntry>(); // keyed by tmux session name
@@ -34,6 +40,24 @@ export function activeTerm(): string | null {
 
 export function setActiveTerm(name: string | null): void {
   active = name;
+}
+
+/**
+ * Whether a terminal shows in the active workspace. Terminals of other
+ * workspaces stay alive (their PTYs attached, their xterms intact) and just
+ * drop out of the tab strip, so switching back is instant. A terminal whose
+ * project has gone from the snapshot stays visible, so it can still be closed.
+ */
+export function termInScope(name: string): boolean {
+  const owner = terminals.get(name)?.owner ?? null;
+  if (owner === null) return true;
+  const group = allGroups().find((g) => g.id === owner);
+  return !group || inWorkspace(group, activeWorkspace());
+}
+
+/** The terminals the active workspace shows, in tab order. */
+export function visibleTerms(): string[] {
+  return [...terminals.keys()].filter(termInScope);
 }
 
 // Console view can show up to 4 terminals at once, dragged into quadrant drop
@@ -73,7 +97,9 @@ export const splitActive = (): boolean => panes.size >= 2;
  *  one (e.g. via the hero's own commander CTA) yields the hero instead of
  *  leaving it rendered on top of the newly attached terminal. */
 export function updatePlaceholder(): void {
-  placeholderEl.style.display = terminals.size ? "none" : "flex";
+  // Keyed on what's on screen, not on how many terminals exist: terminals of
+  // other workspaces are alive but hidden, leaving nothing to show.
+  placeholderEl.style.display = active || splitActive() ? "none" : "flex";
   requestRender("onboarding");
 }
 

@@ -16,7 +16,7 @@ import {
   onboardingCommanderBtn,
   onboardingEl,
 } from "../app/elements";
-import { commanderEnabled, groups, layout } from "../app/store";
+import { allGroups, commanderEnabled, layout } from "../app/store";
 import { terminals } from "../terminal/state";
 import { setTopInput } from "../sidebar/state";
 import { setLayout } from "./layout";
@@ -31,7 +31,7 @@ import { setLayout } from "./layout";
 
 /** First-run hero state: no projects and nothing attached. */
 export function onboardingActive(): boolean {
-  return groups().length === 0 && terminals.size === 0;
+  return allGroups().length === 0 && terminals.size === 0;
 }
 
 export function renderOnboarding(): void {

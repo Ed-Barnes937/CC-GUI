@@ -36,6 +36,6 @@ commanderChip.addEventListener("click", () => {
       toast(`commander failed: ${e}`, "error");
       return;
     }
-    await attachTerminal(name, "commander", null);
+    await attachTerminal(name, "commander", null, null);
   })();
 });

@@ -249,6 +249,12 @@ class TauriSimulator {
     internals.runCallback(entry.channel.id, { index: entry.index++, message: bytes });
   }
 
+  /** tmux sessions with a PTY attached right now (attached and not since
+   *  detached): what a test asserts to prove a hidden terminal stayed alive. */
+  getAttachedPtys(): string[] {
+    return Object.keys(this.ptyChannels);
+  }
+
   /** Signal a PTY ended (or detached), as the backend's pty-exit event would. */
   async emitPtyExit(name: string, ended: boolean): Promise<void> {
     await emit("pty-exit", { session: name, ended });
@@ -334,9 +340,12 @@ class TauriSimulator {
           data: args.data as string,
         });
         return null;
+      case "detach":
+        // The PTY goes; a later attach opens a fresh one.
+        delete this.ptyChannels[args.tmuxSession as string];
+        return null;
       case "restart_fresh":
       case "resize_pty":
-      case "detach":
         return null;
       case "list_session_dir":
         return this.listSessionDir(args.subPath as string, args.showHidden as boolean);

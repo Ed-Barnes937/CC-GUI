@@ -32,6 +32,8 @@ export const onboardingCommanderBtn = document.querySelector<HTMLButtonElement>(
 
 // ---------------------------------------------------------- shell / titlebar
 export const appEl = document.querySelector<HTMLElement>("#app")!;
+export const tbWorkspace = document.querySelector<HTMLButtonElement>("#tb-workspace")!;
+export const tbWorkspaceLabel = tbWorkspace.querySelector<HTMLSpanElement>(".tb-workspace-label")!;
 export const tbCount = document.querySelector<HTMLElement>("#tb-count")!;
 export const tbAttention = document.querySelector<HTMLElement>("#tb-attention")!;
 export const tbConsole = document.querySelector<HTMLButtonElement>("#tb-console")!;
