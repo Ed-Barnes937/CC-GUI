@@ -15,7 +15,7 @@ import { toast } from "../toast";
 import { draggable } from "../drag";
 import { currentTheme } from "../theme";
 import { shellChip } from "../status";
-import { groups } from "../app/store";
+import { findSessionByTmux } from "../app/store";
 import { tabsEl, terminalsEl } from "../app/elements";
 import type { ProjectGroup, SessionRow } from "../app/types";
 import { syncTermOrderFromDom, terminals, type TermEntry } from "./state";
@@ -35,8 +35,11 @@ export async function openTerminal(session: SessionRow): Promise<void> {
   resetRestartBudget(session.tmux_session_name);
   // Recreates the tmux session first if the session is stopped or its pane
   // died, matching the TUI's attach behaviour.
-  await attachTerminal(session.tmux_session_name, session.title, () =>
-    invoke("prepare_attach", { id: session.id }),
+  await attachTerminal(
+    session.tmux_session_name,
+    session.title,
+    () => invoke("prepare_attach", { id: session.id }),
+    session.project_id,
   );
 }
 
@@ -52,7 +55,7 @@ export async function openShell(session: SessionRow): Promise<void> {
   // The tab carries a "❯ Shell" chip (name ends "-sh"), so the title stays the
   // bare session name — keeping entry.title consistent across the tab, the
   // split-pane header, and the board dock (all read entry.title).
-  await attachTerminal(name, session.title, null);
+  await attachTerminal(name, session.title, null, session.project_id);
 }
 
 export async function openProjectShell(group: ProjectGroup): Promise<void> {
@@ -63,18 +66,20 @@ export async function openProjectShell(group: ProjectGroup): Promise<void> {
     toast(`project shell failed: ${e}`, "error");
     return;
   }
-  await attachTerminal(name, group.name, null); // see openShell re: the bare title
+  await attachTerminal(name, group.name, null, group.id); // see openShell re: the bare title
 }
 
 /**
  * Attach (or focus) a terminal tab for a tmux session. `prepare` runs before
  * the PTY attach to ensure the tmux session exists (null when the caller
- * already ensured it).
+ * already ensured it). `owner` is the project the terminal belongs to, which
+ * decides the workspace it shows in (null = every workspace, the commander).
  */
 export async function attachTerminal(
   name: string,
   title: string,
   prepare: (() => Promise<unknown>) | null,
+  owner: string | null,
 ): Promise<void> {
   const existing = terminals.get(name);
   if (existing && !existing.dead) {
@@ -194,7 +199,7 @@ export async function attachTerminal(
     // config-driven keybindings (including select_shell) are suppressed. A
     // no-op on shell/project-shell terminals, whose name matches no session.
     if (e.ctrlKey && e.key === "\\" && !e.metaKey && !e.altKey && !e.shiftKey) {
-      const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
+      const s = findSessionByTmux(name);
       if (s) {
         e.preventDefault();
         void openShell(s);
@@ -301,6 +306,7 @@ export async function attachTerminal(
     glyph,
     title,
     dead: false,
+    owner,
   };
   terminals.set(name, entry);
   updateTabGlyphs();

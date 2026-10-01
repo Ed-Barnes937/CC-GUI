@@ -8,7 +8,7 @@ import { registerView } from "../app/render";
 import { boardColumnsEl, boardFilterEl } from "../app/elements";
 import { onSelectionChange, selectedSession } from "../session/selection";
 import { boardCardRefs, hideEmptyColumns } from "./state";
-import { renderBoardFilterBar } from "./filterBar";
+import { renderBoardFilterBar, updateProjectFilterSummary } from "./filterBar";
 import { orderedSectionColumns, renderBoardColumn, updateBoardRoving } from "./columns";
 
 export function renderBoardColumns(): void {
@@ -44,6 +44,7 @@ export function renderBoardColumns(): void {
  *  re-render only touches columns, never the filter bar. */
 export function renderBoard(): void {
   if (!boardFilterEl.childElementCount) renderBoardFilterBar();
+  else updateProjectFilterSummary();
   renderBoardColumns();
 }
 

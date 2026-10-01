@@ -18,7 +18,7 @@ import {
   detailTitleEl,
   summaryGenEl,
 } from "../app/elements";
-import { groups } from "../app/store";
+import { findSession } from "../app/store";
 import type { SessionDetail, SessionRow } from "../app/types";
 import { refitActive } from "../terminal/state";
 import { diffstatBar, parseDiffStat } from "./diffstat";
@@ -107,7 +107,7 @@ function renderDetail(d: SessionDetail): void {
   // Tag chips: derive from the matching snapshot row's PR labels (real data;
   // no dedicated tag source exists). Empty when the session has no labels.
   detailTagsEl.innerHTML = "";
-  const row = groups().flatMap((g) => g.sessions).find((x) => x.id === d.id);
+  const row = findSession(d.id);
   for (const label of row?.pr_labels ?? []) {
     const chip = document.createElement("span");
     chip.className = "detail-tag";

@@ -9,7 +9,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { requestRender } from "../app/render";
-import { groups, layout } from "../app/store";
+import { findSessionByTmux, layout } from "../app/store";
 import {
   boardDockEl,
   boardDockNameEl,
@@ -27,8 +27,10 @@ import {
   setFocusedSlot,
   focusedSlot,
   splitActive,
+  termInScope,
   terminals,
   updatePlaceholder,
+  visibleTerms,
   SLOT_COLOR,
   type Slot,
 } from "./state";
@@ -104,20 +106,64 @@ export function closeTerminal(name: string): void {
   }
   if (wasSplit) {
     // Dropped below two panes: leave split, keeping the remaining session.
-    exitSplit([...panes.values()][0] ?? terminals.keys().next().value ?? null);
+    exitSplit([...panes.values()][0] ?? null);
     updatePlaceholder();
     requestRender("sidebar");
     return;
   }
 
   if (activeTerm() === name) {
-    const next = terminals.keys().next().value ?? null;
-    setActiveTerm(next);
+    // Fall back to another tab of this workspace, never a hidden one.
+    const next = visibleTerms()[0] ?? null;
     if (next) activateTerminal(next);
-    else if (layout() === "board") updateDockHeader(); // no terminal left → dock placeholder
+    else clearActiveTerminal();
   }
   updatePlaceholder();
   requestRender("sidebar");
+}
+
+/** Show no terminal: every container and tab inactive, the placeholder (or the
+ *  dock's) in their place. What the active workspace shows when none of the
+ *  open terminals are its own. */
+export function clearActiveTerminal(): void {
+  setActiveTerm(null);
+  for (const entry of terminals.values()) {
+    entry.container.classList.remove("active");
+    entry.tab.classList.remove("active");
+  }
+  updatePlaceholder();
+  if (layout() === "board") updateDockHeader();
+  requestRender("sidebar");
+}
+
+/**
+ * Bring the terminal surface in line with the active workspace: drop split
+ * panes holding another workspace's terminal, and if the on-screen terminal
+ * isn't this workspace's, show `preferred` (its remembered tab), else its
+ * first tab, else nothing. A `preferred` that's open and in scope wins over a
+ * workspace-neutral one already on screen (the commander), since it's what
+ * this workspace last showed. Hidden terminals are left alone, still attached.
+ */
+export function scopeTerminals(preferred: string | null = null): void {
+  const shown = (n: string | null): n is string => !!n && terminals.has(n) && termInScope(n);
+  if (splitActive()) {
+    const out = [...panes].filter(([, n]) => !termInScope(n));
+    if (!out.length) return;
+    for (const [slot] of out) panes.delete(slot);
+    if (splitActive()) {
+      renderPanes();
+      return;
+    }
+    exitSplit(shown(preferred) ? preferred : ([...panes.values()][0] ?? null));
+    return;
+  }
+  const current = activeTerm();
+  if (shown(preferred) && preferred !== current) activateTerminal(preferred);
+  else if (!shown(current)) {
+    const next = visibleTerms()[0];
+    if (next) activateTerminal(next);
+    else if (current !== null) clearActiveTerminal();
+  }
 }
 
 // In board mode the active session's terminal lives in the dock at the bottom
@@ -152,7 +198,7 @@ export function updateDockHeader(): void {
     boardDockPlaceholderEl.style.display = "flex";
     return;
   }
-  const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === activeTerm());
+  const s = docked ? findSessionByTmux(docked) : undefined;
   boardDockNameEl.textContent = s ? s.title : entry.title;
   boardDockBranchEl.textContent = s ? s.branch : "";
   boardDockPlaceholderEl.style.display = "none";
@@ -500,7 +546,7 @@ export function renderPanes(): void {
 
 /** Leave split mode, keeping `keep` (if valid) as the single active terminal. */
 export function exitSplit(keep: string | null): void {
-  const target = keep && terminals.has(keep) ? keep : (terminals.keys().next().value ?? null);
+  const target = keep && terminals.has(keep) && termInScope(keep) ? keep : (visibleTerms()[0] ?? null);
   panes.clear();
   setFocusedSlot(null);
   clearTabPaneColors();
@@ -516,10 +562,7 @@ export function exitSplit(keep: string | null): void {
   terminalsEl.classList.remove("split");
   setActiveTerm(null); // force activateTerminal to re-show the kept terminal
   if (target) activateTerminal(target);
-  else {
-    updatePlaceholder();
-    if (layout() === "board") updateDockHeader();
-  }
+  else clearActiveTerminal();
 }
 
 window.addEventListener("resize", () => {

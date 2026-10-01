@@ -15,14 +15,7 @@ import { commentsChip, pullBlockedChip } from "../status";
 import { sessionsEl } from "../app/elements";
 import { requestRender } from "../app/render";
 import { actionErrorToast, invokeToast, lifecycle, lifecycleArgs, refreshNow } from "../app/actions";
-import {
-  groupOf,
-  groups,
-  maskDeleted,
-  sectionNames,
-  sections,
-  unmaskDeleted,
-} from "../app/store";
+import { dropSession, groupOf, maskDeleted, sectionNames, unmaskDeleted } from "../app/store";
 import type { SessionRow } from "../app/types";
 import { activeTerm, terminals } from "../terminal/state";
 import { closeTerminal } from "../terminal/surface";
@@ -108,9 +101,7 @@ export function confirmButton(
 export function deleteSession(s: SessionRow): void {
   closeTerminal(s.tmux_session_name);
   maskDeleted(s.id);
-  for (const g of groups()) g.sessions = g.sessions.filter((row) => row.id !== s.id);
-  const buckets = sections();
-  if (buckets) for (const b of buckets) b.session_ids = b.session_ids.filter((id) => id !== s.id);
+  dropSession(s.id);
   requestRender("sidebar");
   requestRender("board");
   requestRender("titlebar");

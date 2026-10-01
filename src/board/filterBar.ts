@@ -64,6 +64,16 @@ export function renderBoardFilterBar(): void {
   boardFilterEl.append(pills, buildProjectFilter(), search, create);
 }
 
+// The live filter button's summary refresher. The filter bar is built once
+// (it owns the search input), but the projects it summarises change under it:
+// a switch of workspace, a project added or removed.
+let summarizeProjectFilter: (() => void) | null = null;
+
+/** Re-label the project filter button for the current projects and selection. */
+export function updateProjectFilterSummary(): void {
+  summarizeProjectFilter?.();
+}
+
 /** Multiselect project filter: a button summarising the selection, over a
  *  popover of per-project checkboxes with Select-all / Clear-all helpers.
  *  Defaults to all projects; the selection lives in `boardProjectFilter`. */
@@ -161,6 +171,7 @@ export function buildProjectFilter(): HTMLElement {
   });
 
   updateSummary();
+  summarizeProjectFilter = updateSummary;
   wrap.append(btn, panel);
   return wrap;
 }

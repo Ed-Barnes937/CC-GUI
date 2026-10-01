@@ -8,15 +8,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { showContextMenu } from "../menu";
 import { tabsEl } from "../app/elements";
 import { registerView } from "../app/render";
-import { groups } from "../app/store";
+import { findSessionByTmux } from "../app/store";
 import { applyStatusGlyph } from "../session/glyph";
 import { projectPickerItems } from "../session/create";
-import { activeTerm, terminals } from "./state";
+import { activeTerm, terminals, termInScope, visibleTerms } from "./state";
 import { activateTerminal, closeTerminal } from "./surface";
 
 /** The tab to insert the dragged tab before, given the pointer's x (null = end). */
 export function tabBeforeX(x: number): HTMLDivElement | null {
-  const tabs = [...tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging)")];
+  const tabs = [...tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging):not(.out-of-scope)")];
   for (const tab of tabs) {
     const box = tab.getBoundingClientRect();
     if (x < box.left + box.width / 2) return tab;
@@ -30,7 +30,7 @@ export function showDropMarker(target: HTMLDivElement | null): void {
   if (target) {
     target.classList.add("drop-before");
   } else {
-    const tabs = tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging)");
+    const tabs = tabsEl.querySelectorAll<HTMLDivElement>(".tab:not(.dragging):not(.out-of-scope)");
     tabs[tabs.length - 1]?.classList.add("drop-after");
   }
 }
@@ -72,24 +72,27 @@ window.addEventListener(
   true,
 );
 
-/** Activate the open terminal tab at `index` (0-based), if it exists. */
+/** Activate the shown terminal tab at `index` (0-based), if it exists. */
 export function activateTabByIndex(index: number): void {
-  const name = [...terminals.keys()][index];
+  const name = visibleTerms()[index];
   if (name) activateTerminal(name);
 }
 
-/** Cycle the active terminal tab by `delta` (wraps around). */
+/** Cycle the active terminal tab by `delta` among the shown tabs (wraps). */
 export function cycleTab(delta: number): void {
-  const names = [...terminals.keys()];
+  const names = visibleTerms();
   if (!names.length) return;
   const name = activeTerm();
   const cur = name ? names.indexOf(name) : -1;
   activateTerminal(names[(cur + delta + names.length) % names.length]);
 }
 
+/** Refresh every tab: hide the ones of other workspaces (their terminals stay
+ *  attached) and update the liveness dots of the rest. */
 export function updateTabGlyphs(): void {
   for (const [name, entry] of terminals) {
-    const s = groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name);
+    entry.tab.classList.toggle("out-of-scope", !termInScope(name));
+    const s = findSessionByTmux(name);
     if (s) {
       entry.glyph.hidden = false;
       applyStatusGlyph(entry.glyph, s);
