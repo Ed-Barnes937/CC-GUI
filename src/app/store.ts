@@ -208,9 +208,11 @@ export function applySnapshot(snap: Snapshot): void {
   startupChoice = snap.startup_workspace ?? "last";
   version++;
   loaded = true;
-  // A workspace deleted elsewhere falls back to Main before anything draws.
+  // A workspace deleted elsewhere falls back to Main before anything draws;
+  // that switch redraws everything itself, so don't draw twice.
+  const before = activeWorkspace();
   reconcileActiveWorkspace(workspaceList);
-  renderAll();
+  if (activeWorkspace() === before) renderAll();
 }
 
 // --------------------------------------------------------------- preferences

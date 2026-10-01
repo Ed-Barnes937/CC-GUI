@@ -117,6 +117,7 @@ export function closeTerminal(name: string): void {
     const next = visibleTerms()[0] ?? null;
     if (next) activateTerminal(next);
     else clearActiveTerminal();
+    return; // both paths already refreshed the placeholder and the sidebar
   }
   updatePlaceholder();
   requestRender("sidebar");
