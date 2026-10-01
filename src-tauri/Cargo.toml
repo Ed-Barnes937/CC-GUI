@@ -29,6 +29,12 @@ uuid = "1"
 claude-commander-core = { git = "https://github.com/sizeak/claude-commander", tag = "v0.38.0", default-features = false, features = [
     "clipboard",
 ] }
+# Same tag as core (one upstream workspace release). The protocol crate owns the
+# workspace wire types and naming rules; viewmodel owns the client-side
+# decisions (merged list, startup resolution) the TUI makes, so the GUI makes
+# them identically. Both are serde-only.
+claude-commander-protocol = { git = "https://github.com/sizeak/claude-commander", tag = "v0.38.0" }
+claude-commander-viewmodel = { git = "https://github.com/sizeak/claude-commander", tag = "v0.38.0" }
 futures = "0.3.32"
 tracing = "0.1.44"
 chrono = "0.4.45"

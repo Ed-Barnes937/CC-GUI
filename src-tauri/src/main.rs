@@ -12,6 +12,7 @@ mod service;
 mod sessions;
 mod settings;
 mod themes;
+mod workspaces;
 
 /// When launched from Finder, a macOS app inherits launchd's minimal PATH
 /// (`/usr/bin:/bin:/usr/sbin:/sbin`) — missing Homebrew, nvm, etc. — so tools
@@ -129,7 +130,15 @@ fn main() {
             pty::attach,
             pty::write_pty,
             pty::resize_pty,
-            pty::detach
+            pty::detach,
+            workspaces::set_project_workspace,
+            workspaces::create_workspace,
+            workspaces::reorder_workspaces,
+            workspaces::rename_workspace,
+            workspaces::delete_workspace,
+            workspaces::set_main_workspace_label,
+            workspaces::set_startup_workspace,
+            workspaces::resolve_startup_workspace
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
