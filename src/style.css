@@ -2734,6 +2734,30 @@ body.resizing .panel-resizer {
   opacity: 0;
 }
 
+/* A toast that offers a follow-up: the message, then the action at the end. */
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-action {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: var(--border);
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;
@@ -3112,6 +3136,37 @@ body.resizing .panel-resizer {
 
 .context-menu.workspace-menu {
   min-width: 250px;
+}
+
+/* A row that opens a submenu stays lit while its submenu is up. */
+.menu-item.open {
+  background: var(--border);
+}
+
+.context-menu.submenu {
+  min-width: 190px;
+}
+
+/* The current choice in a pick-one menu: shown, ticked, but inert. */
+.menu-item.disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.menu-item.disabled:hover {
+  background: none;
+}
+
+.menu-tag {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* A workspace row under a dragged project header. The header holds the
+   pointer capture, so :hover can't light the row; the drag does it instead. */
+.menu-item.drop-hover {
+  background: var(--border);
 }
 
 .menu-separator {

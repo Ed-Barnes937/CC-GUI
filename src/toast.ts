@@ -15,24 +15,41 @@ function toastStack(): HTMLDivElement {
   return stack;
 }
 
+/** A follow-up a toast offers as a button (e.g. "Switch to OSS"). */
+export type ToastAction = { label: string; run: () => void };
+
 /** Show a transient toast. Errors stay longer and are styled red. `detail`
  *  (e.g. a raw backend error) is tucked into the hover title so the visible
- *  message can stay a plain-language sentence. */
+ *  message can stay a plain-language sentence. A toast with an `action` stays
+ *  as long as an error does, so there's time to take it up. */
 export function toast(
   message: string,
   kind: "info" | "error" = "info",
   detail?: string,
+  action?: ToastAction,
 ): void {
   const el = document.createElement("div");
   el.className = `toast ${kind}`;
   el.textContent = message;
   if (detail) el.title = detail;
+  if (action) {
+    const btn = document.createElement("button");
+    btn.className = "toast-action";
+    btn.textContent = action.label;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      el.remove();
+      action.run();
+    });
+    el.classList.add("has-action");
+    el.appendChild(btn);
+  }
   el.addEventListener("click", () => el.remove());
   toastStack().appendChild(el);
   setTimeout(() => {
     el.classList.add("fade");
     setTimeout(() => el.remove(), 300);
-  }, kind === "error" ? 8000 : 4000);
+  }, kind === "error" || action ? 8000 : 4000);
 }
 
 /**

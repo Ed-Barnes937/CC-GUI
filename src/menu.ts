@@ -18,6 +18,16 @@ export type MenuItem =
       meta?: string;
       /** Indent a plain row to line up with a ticking menu's names. */
       indent?: boolean;
+      /** Shown dimmed and not clickable (the current choice, say). */
+      disabled?: boolean;
+      /** A short dim tag at the row's right edge (e.g. "current"). */
+      tag?: string;
+    }
+  | {
+      label: string;
+      /** A row that opens a submenu beside it (drawn with a trailing ▸). Built
+       *  when it opens, so its items reflect the moment. */
+      submenu: () => MenuItem[];
     }
   | { header: string }
   | "separator";
@@ -31,9 +41,13 @@ export type MenuOptions = {
 };
 
 let menuEl: HTMLDivElement | null = null;
+let subEl: HTMLDivElement | null = null;
+let subOwner: HTMLElement | null = null;
+let subCloseTimer: number | undefined;
 let closeHook: (() => void) | null = null;
 
 export function dismissMenu(): void {
+  closeSubmenu();
   menuEl?.remove();
   menuEl = null;
   const hook = closeHook;
@@ -61,11 +75,23 @@ export function showMenuBelow(anchor: Element, items: MenuItem[], options: MenuO
 
 function openMenu(x: number, y: number, items: MenuItem[], options: MenuOptions): void {
   dismissMenu();
+  const menu = buildMenu(items);
+  if (options.className) menu.classList.add(options.className);
+  document.body.appendChild(menu);
+  menuEl = menu;
+  closeHook = options.onClose ?? null;
 
+  // Position, clamped to the viewport.
+  const { innerWidth, innerHeight } = window;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(x, innerWidth - rect.width - 4)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - rect.height - 4)}px`;
+}
+
+function buildMenu(items: MenuItem[]): HTMLDivElement {
   const menu = document.createElement("div");
   menu.className = "context-menu";
   menu.setAttribute("role", "menu");
-  if (options.className) menu.classList.add(options.className);
   for (const item of items) {
     if (item === "separator") {
       const sep = document.createElement("div");
@@ -83,9 +109,46 @@ function openMenu(x: number, y: number, items: MenuItem[], options: MenuOptions)
     const row = document.createElement("div");
     row.className = "menu-item";
     row.setAttribute("role", "menuitem");
+    const label = document.createElement("span");
+    label.className = "menu-label";
+    label.textContent = item.label;
+
+    if ("submenu" in item) {
+      row.classList.add("has-submenu");
+      row.setAttribute("aria-haspopup", "menu");
+      const arrow = document.createElement("span");
+      arrow.className = "menu-shortcut";
+      arrow.textContent = "▸";
+      row.append(label, arrow);
+      const open = () => {
+        clearTimeout(subCloseTimer);
+        if (subOwner !== row) openSubmenu(row, item.submenu());
+      };
+      row.addEventListener("mouseenter", open);
+      row.addEventListener("click", (e) => {
+        e.stopPropagation(); // not a pick: keep the menu open
+        open();
+      });
+      menu.appendChild(row);
+      continue;
+    }
+
+    // Any other row of the menu that holds the submenu closes it -- after a
+    // beat, so a pointer cutting diagonally across a row on its way into the
+    // submenu doesn't lose it.
+    row.addEventListener("mouseenter", () => {
+      if (!subEl || subOwner?.parentElement !== menu) return;
+      clearTimeout(subCloseTimer);
+      subCloseTimer = window.setTimeout(closeSubmenu, 250);
+    });
+
     if (item.danger) row.classList.add("danger");
     if (item.warning) row.classList.add("warning");
     if (item.indent) row.classList.add("indent");
+    if (item.disabled) {
+      row.classList.add("disabled");
+      row.setAttribute("aria-disabled", "true");
+    }
     if (item.checked !== undefined) {
       row.classList.add("checkable");
       row.setAttribute("aria-checked", item.checked ? "true" : "false");
@@ -94,9 +157,6 @@ function openMenu(x: number, y: number, items: MenuItem[], options: MenuOptions)
       tick.textContent = item.checked ? "✓" : "";
       row.appendChild(tick);
     }
-    const label = document.createElement("span");
-    label.className = "menu-label";
-    label.textContent = item.label;
     if (item.sublabel) {
       const sub = document.createElement("span");
       sub.className = "menu-sublabel";
@@ -110,33 +170,68 @@ function openMenu(x: number, y: number, items: MenuItem[], options: MenuOptions)
       meta.textContent = item.meta;
       row.appendChild(meta);
     }
+    if (item.tag) {
+      const tag = document.createElement("span");
+      tag.className = "menu-tag";
+      tag.textContent = item.tag;
+      row.appendChild(tag);
+    }
     if (item.shortcut) {
       const kbd = document.createElement("span");
       kbd.className = "menu-shortcut";
       kbd.textContent = item.shortcut;
       row.appendChild(kbd);
     }
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (e) => {
+      if (item.disabled) {
+        e.stopPropagation(); // inert: neither a pick nor a dismissal
+        return;
+      }
       dismissMenu();
       item.action();
     });
     menu.appendChild(row);
   }
-  document.body.appendChild(menu);
-  menuEl = menu;
-  closeHook = options.onClose ?? null;
+  return menu;
+}
 
-  // Position, clamped to the viewport.
+/** Open `items` beside `row`: to its right, top-aligned with it, or to the
+ *  left when there's no room on the right. */
+function openSubmenu(row: HTMLElement, items: MenuItem[]): void {
+  closeSubmenu();
+  const sub = buildMenu(items);
+  sub.classList.add("submenu");
+  // Hovering into the submenu keeps it, however the pointer got there.
+  sub.addEventListener("mouseenter", () => clearTimeout(subCloseTimer));
+  document.body.appendChild(sub);
+  subEl = sub;
+  subOwner = row;
+  row.classList.add("open");
+
+  const parent = row.parentElement!.getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  const rect = sub.getBoundingClientRect();
   const { innerWidth, innerHeight } = window;
-  const rect = menu.getBoundingClientRect();
-  menu.style.left = `${Math.min(x, innerWidth - rect.width - 4)}px`;
-  menu.style.top = `${Math.min(y, innerHeight - rect.height - 4)}px`;
+  // The submenu's first row lines up with this one (its 4px padding + 1px border).
+  const right = parent.right + 2;
+  const left = right + rect.width <= innerWidth - 4 ? right : Math.max(4, parent.left - rect.width - 2);
+  sub.style.left = `${left}px`;
+  sub.style.top = `${Math.max(4, Math.min(r.top - 5, innerHeight - rect.height - 4))}px`;
+}
+
+function closeSubmenu(): void {
+  clearTimeout(subCloseTimer);
+  subEl?.remove();
+  subEl = null;
+  subOwner?.classList.remove("open");
+  subOwner = null;
 }
 
 document.addEventListener("click", dismissMenu);
 document.addEventListener("contextmenu", (e) => {
   // Right-clicking outside a menu trigger dismisses any open menu.
-  if (menuEl && !menuEl.contains(e.target as Node)) dismissMenu();
+  const target = e.target as Node;
+  if (menuEl && !menuEl.contains(target) && !subEl?.contains(target)) dismissMenu();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissMenu();
