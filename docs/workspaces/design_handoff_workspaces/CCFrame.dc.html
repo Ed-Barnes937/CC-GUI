@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:"IBM Plex Sans";font-weight:400;src:url("src/assets/fonts/IBMPlexSans-Regular.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Sans";font-weight:500;src:url("src/assets/fonts/IBMPlexSans-Medium.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Sans";font-weight:600;src:url("src/assets/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Sans";font-weight:700;src:url("src/assets/fonts/IBMPlexSans-Bold.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;src:url("src/assets/fonts/IBMPlexMono-Regular.woff2") format("woff2");}
+*,*::before,*::after{box-sizing:border-box;margin:0;}
+@font-face{font-family:"IBM Plex Mono";font-weight:700;src:url("src/assets/fonts/IBMPlexMono-Bold.woff2") format("woff2");}
+</style>
+</helmet>
+<div style="--font-ui:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;--bg-base:#1e1e2e;--bg-elevated:#191926;--bg-inset:#11111b;--border:#343650;--border-strong:#4a4c68;--surface2:#5c5f78;--text:#e4e8fb;--text-muted:#b7bedd;--text-dim:#8a90ad;--accent:#8fb8ff;--success:#a9e6a4;--danger:#f58fab;--warning:#f6dd9c;--attention:#fab387;--info:#cba6f7;--cyan:#8fe0ee;--proj-0:#89b4fa;--proj-1:#f9e2af;--proj-2:#a6e3a1;--proj-3:#f5c2e7;--proj-4:#cba6f7;--proj-5:#94e2d5;--proj-6:#fab387;--proj-7:#f0a7b2;width:1280px;height:800px;">
+<div style="{{ themeVars }}">
+<div style="--row-selected-bg:color-mix(in srgb,var(--accent) 12%,transparent);--row-hover-bg:color-mix(in srgb,var(--text) 5%,transparent);--scrim:color-mix(in srgb,var(--bg-inset) 64%,transparent);position:relative;width:1280px;height:800px;overflow:hidden;display:flex;flex-direction:column;font-family:var(--font-ui);background:var(--bg-base);color:var(--text);">
+
+  <!-- titlebar -->
+  <div style="height:46px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-elevated);border-bottom:1px solid var(--bg-inset);">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--accent),var(--info));"></span>
+      <span style="font-size:13px;font-weight:600;color:var(--text);">claude-commander</span>
+      <sc-if value="{{ swTitlebar }}" hint-placeholder-val="{{ false }}">
+        <span style="display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 10px;border:1px solid {{ wsChipBorder }};border-radius:7px;background:{{ wsChipBg }};font-size:12px;font-weight:500;color:var(--text);cursor:pointer;">
+          <span>{{ ws }}</span><span style="color:var(--text-dim);font-size:10px;">▾</span>
+        </span>
+      </sc-if>
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg-inset);">{{ countText }}</span>
+      <sc-if value="{{ hasWaiting }}" hint-placeholder-val="{{ true }}">
+        <span style="font-family:var(--font-mono);font-size:11px;padding:2px 8px;border-radius:999px;color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 35%,transparent);background:color-mix(in srgb,var(--warning) 12%,transparent);">{{ waitingText }}</span>
+      </sc-if>
+    </div>
+    <div style="display:flex;gap:2px;padding:2px;border-radius:8px;background:var(--bg-inset);">
+      <span style="{{ segConsole }}">Console</span>
+      <span style="{{ segBoard }}">Board</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="height:32px;display:flex;align-items:center;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;padding:0 10px;">Jump to… ⌘K</span>
+      <span style="height:32px;width:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;">◐</span>
+      <span style="height:32px;width:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;">?</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex:1;min-height:0;">
+
+  <!-- ===================== CONSOLE ===================== -->
+  <sc-if value="{{ isConsole }}" hint-placeholder-val="{{ true }}">
+    <aside style="width:300px;flex-shrink:0;background:var(--bg-elevated);border-right:1px solid var(--bg-inset);display:flex;flex-direction:column;">
+      <sc-if value="{{ swSidebarOff }}" hint-placeholder-val="{{ true }}">
+        <header style="display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 12px;border-bottom:1px solid var(--border);">
+          <h1 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">SESSIONS</h1>
+          <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1.4;padding:0 6px;">⋯</span>
+        </header>
+      </sc-if>
+      <sc-if value="{{ swSidebar }}" hint-placeholder-val="{{ false }}">
+        <header style="display:flex;align-items:stretch;height:40px;padding:0 8px 0 4px;border-bottom:1px solid var(--border);">
+          <sc-for list="{{ wsTabs }}" as="w" hint-placeholder-count="3">
+            <span style="{{ w.style }}">{{ w.name }}</span>
+          </sc-for>
+          <span style="display:flex;align-items:center;padding:0 10px;color:var(--text-dim);font-size:16px;border-bottom:2px solid transparent;">+</span>
+          <span style="flex:1;"></span>
+          <span style="align-self:center;border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1.4;padding:0 6px;">⋯</span>
+        </header>
+      </sc-if>
+      <div style="overflow:hidden;flex:1;padding:6px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 6px;font-size:11px;">
+          <span style="font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim);">GROUP BY</span>
+          <div style="display:flex;gap:3px;padding:3px;background:var(--bg-inset);border:1px solid var(--border);border-radius:7px;">
+            <span style="padding:4px 12px;border-radius:5px;color:var(--text-muted);font-size:11.5px;">Sections</span>
+            <span style="padding:4px 12px;border-radius:5px;background:var(--accent);color:var(--bg-inset);font-size:11.5px;">Projects</span>
+            <span style="padding:4px 12px;border-radius:5px;color:var(--text-muted);font-size:11.5px;">Status</span>
+          </div>
+        </div>
+        <sc-for list="{{ projects }}" as="p" hint-placeholder-count="3">
+          <div style="{{ p.headerStyle }}">
+            <span style="width:9px;height:9px;border-radius:2px;flex-shrink:0;background:{{ p.color }};"></span>
+            <span>{{ p.name }}</span>
+            <span style="font-weight:400;color:var(--text-dim);">{{ p.count }}</span>
+            <sc-if value="{{ p.blocked }}" hint-placeholder-val="{{ false }}">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;text-transform:none;letter-spacing:normal;color:var(--danger);background:color-mix(in srgb,var(--danger) 14%,transparent);"><span>⚠</span><span>Pull blocked</span></span>
+            </sc-if>
+            <span style="flex:1;min-width:12px;height:0;align-self:center;border-top:1px solid var(--border);"></span>
+            <span style="display:flex;gap:4px;">
+              <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1.4;padding:0 6px;font-weight:400;">$</span>
+              <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1.4;padding:0 6px;font-weight:400;">+</span>
+            </span>
+          </div>
+          <sc-for list="{{ p.sessions }}" as="s" hint-placeholder-count="2">
+            <div style="{{ s.rowStyle }}">
+              <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+                <div style="display:flex;align-items:center;gap:9px;min-width:0;">
+                  <span style="{{ s.dotStyle }}">{{ s.glyph }}</span>
+                  <span style="font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.title }}</span>
+                  <sc-if value="{{ s.pr }}" hint-placeholder-val="{{ false }}">
+                    <span style="{{ s.prStyle }}">{{ s.pr }}</span>
+                  </sc-if>
+                  <sc-if value="{{ s.comments }}" hint-placeholder-val="{{ false }}">
+                    <span style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;color:var(--info);background:color-mix(in srgb,var(--info) 14%,transparent);"><span>✎</span><span>Comments</span></span>
+                  </sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;min-height:18px;">
+                  <span style="{{ s.chipStyle }}">{{ s.word }}</span>
+                  <sc-if value="{{ s.showBranch }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;">{{ s.branch }}</span>
+                  </sc-if>
+                  <sc-if value="{{ s.selected }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0;">
+                      <span style="height:18px;min-width:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:7px;color:var(--text-muted);font-size:10.5px;line-height:1;">ⓘ</span>
+                      <span style="height:18px;min-width:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:7px;color:var(--text-muted);font-size:10.5px;line-height:1;">±</span>
+                      <span style="height:18px;min-width:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:7px;color:var(--text-muted);font-size:10.5px;line-height:1;">■</span>
+                      <span style="height:18px;min-width:24px;padding:0 4px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:7px;color:var(--text-muted);font-size:10.5px;line-height:1;">✕</span>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </sc-for>
+      </div>
+      <footer style="border-top:1px solid var(--border);flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:7px;padding:9px 12px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);">
+          <span style="width:9px;height:9px;border-radius:2px;background:var(--info);"></span>
+          <span style="font-family:var(--font-mono);">commander</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--text-dim);">attach ⏎</span>
+        </div>
+      </footer>
+    </aside>
+    <main style="flex:1;display:flex;flex-direction:column;min-width:0;position:relative;">
+      <div style="display:flex;align-items:stretch;height:44px;background:var(--bg-elevated);border-bottom:1px solid var(--border);flex-shrink:0;">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+          <div style="{{ t.style }}">
+            <span style="{{ t.dotStyle }}">{{ t.glyph }}</span>
+            <span style="font-weight:500;">{{ t.title }}</span>
+            <span style="color:var(--text-dim);font-size:13px;padding:0 6px;">✕</span>
+          </div>
+        </sc-for>
+        <span style="display:flex;align-items:center;border-top:2px solid transparent;color:var(--text-dim);font-size:18px;line-height:1;padding:0 14px;">+</span>
+      </div>
+      <div style="flex:1;position:relative;min-height:0;">
+        <div style="position:absolute;inset:4px;display:flex;flex-direction:column;background:var(--bg-inset);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.25);overflow:hidden;padding:14px 16px;gap:6px;font-family:var(--font-mono);font-size:12.5px;line-height:1.5;">
+          <sc-for list="{{ termLines }}" as="l" hint-placeholder-count="6">
+            <div style="{{ l.style }}">{{ l.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </main>
+  </sc-if>
+
+  <!-- ===================== BOARD ===================== -->
+  <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;gap:10px;height:48px;flex-shrink:0;padding:0 14px;background:var(--bg-elevated);border-bottom:1px solid var(--border);">
+        <sc-if value="{{ swSidebar }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:3px;padding:3px;background:var(--bg-inset);border:1px solid var(--border);border-radius:7px;">
+            <sc-for list="{{ wsSegs }}" as="w" hint-placeholder-count="3">
+              <span style="{{ w.style }}">{{ w.name }}</span>
+            </sc-for>
+            <span style="padding:4px 9px;border-radius:5px;color:var(--text-dim);font-size:12px;">+</span>
+          </div>
+          <span style="width:1px;height:22px;background:var(--border);"></span>
+        </sc-if>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <sc-if value="{{ hasWaiting }}" hint-placeholder-val="{{ true }}">
+            <span style="padding:4px 10px;font-size:12px;border-radius:8px;font-family:var(--font-mono);color:var(--warning);border:1px solid color-mix(in srgb,var(--warning) 35%,transparent);background:color-mix(in srgb,var(--warning) 12%,transparent);white-space:nowrap;">{{ waitingText }}</span>
+          </sc-if>
+          <span style="padding:4px 10px;font-size:12px;border-radius:8px;border:1px solid transparent;color:var(--text-muted);">Hide empty</span>
+        </div>
+        <span style="padding:4px 10px;font-size:12px;border-radius:8px;border:1px solid var(--border);color:var(--text-muted);">All projects ▾</span>
+        <span style="flex:1;max-width:320px;padding:5px 10px;font-size:12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--bg-inset);color:var(--text-dim);">Search sessions…</span>
+        <span style="margin-left:auto;padding:5px 12px;font-size:12px;border-radius:8px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);">＋ New session</span>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;gap:14px;padding:14px;overflow:hidden;">
+        <sc-for list="{{ columns }}" as="c" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;width:306px;flex-shrink:0;background:var(--bg-base);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+            <div style="display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--border);">
+              <span style="font-size:14px;font-weight:600;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ c.name }}</span>
+              <span style="font-size:11px;color:var(--text-dim);background:var(--bg-inset);padding:2px 8px;border-radius:999px;">{{ c.count }}</span>
+            </div>
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:12px;overflow:hidden;">
+              <sc-for list="{{ c.cards }}" as="s" hint-placeholder-count="2">
+                <div style="{{ s.cardStyle }}">
+                  <div style="display:flex;align-items:center;gap:8px;padding:10px 13px 8px;">
+                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;">
+                      <span style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.title }}</span>
+                      <span style="display:flex;align-items:center;gap:5px;min-width:0;font-size:11px;color:var(--text-dim);">
+                        <span style="width:9px;height:9px;border-radius:2px;flex-shrink:0;background:{{ s.projColor }};"></span>
+                        <span>{{ s.project }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div style="display:flex;margin:0 13px;padding-bottom:4px;">
+                    <span style="{{ s.compactChipStyle }}"><span style="{{ s.chipDotStyle }}">{{ s.chipGlyph }}</span><span>{{ s.word }}</span></span>
+                    <sc-if value="{{ s.selected }}" hint-placeholder-val="{{ false }}">
+                      <span style="margin-left:auto;align-self:center;font-size:11px;font-weight:500;color:var(--accent);white-space:nowrap;">▸ docked</span>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{ s.showBranch }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:6px;min-width:0;margin:0 13px 2px;padding-bottom:4px;font-size:11px;color:var(--text-dim);">
+                      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="opacity:0.7;">⎇ </span>{{ s.branch }}</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ s.hasDiff }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin:10px 13px 0;">
+                      <div style="display:flex;height:6px;border-radius:4px;margin:0 0 7px;overflow:hidden;background:var(--border);">
+                        <span style="{{ s.addBar }}"></span><span style="{{ s.delBar }}"></span>
+                      </div>
+                      <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11.5px;font-family:var(--font-mono);">
+                        <span style="color:var(--success);">{{ s.adds }}</span><span style="color:var(--danger);">{{ s.dels }}</span>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <div style="display:flex;flex-direction:column;gap:9px;padding:10px 13px 12px;">
+                    <sc-if value="{{ s.hasChips }}" hint-placeholder-val="{{ false }}">
+                      <span style="display:flex;flex-wrap:wrap;gap:6px;">
+                        <sc-if value="{{ s.pr }}" hint-placeholder-val="{{ false }}"><span style="{{ s.prStyle }}">{{ s.pr }}</span></sc-if>
+                        <sc-if value="{{ s.comments }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;color:var(--info);background:color-mix(in srgb,var(--info) 14%,transparent);"><span>✎</span><span>Comments</span></span></sc-if>
+                        <sc-if value="{{ s.blocked }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;color:var(--danger);background:color-mix(in srgb,var(--danger) 14%,transparent);"><span>⚠</span><span>Pull blocked</span></span></sc-if>
+                      </span>
+                    </sc-if>
+                    <span style="display:flex;gap:7px;opacity:0;">
+                      <span style="flex:1;min-height:28px;padding:7px;border-radius:8px;text-align:center;font-size:12px;font-weight:500;line-height:1;color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,transparent);">Attach</span>
+                      <span style="flex:1;min-height:28px;padding:7px;border-radius:8px;text-align:center;font-size:12px;font-weight:500;line-height:1;color:var(--info);border:1px solid var(--border-strong);">± Review</span>
+                    </span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="height:194px;flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--border);background:var(--bg-elevated);">
+        <div style="display:flex;align-items:center;gap:8px;height:32px;flex-shrink:0;padding:0 12px;border-bottom:1px solid var(--border);font-size:12px;">
+          <span style="color:var(--accent);flex-shrink:0;">▸ attached</span>
+          <span style="color:var(--text);font-weight:600;white-space:nowrap;">{{ activeTitle }}</span>
+          <span style="color:var(--text-dim);white-space:nowrap;">{{ activeBranch }}</span>
+          <span style="flex:1;"></span>
+          <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:15px;line-height:1;padding:3px 8px;">⤢</span>
+          <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:15px;line-height:1;padding:3px 8px;">×</span>
+        </div>
+        <div style="position:relative;flex:1;min-height:0;">
+          <div style="position:absolute;inset:4px;display:flex;flex-direction:column;background:var(--bg-inset);border:1px solid var(--border);border-radius:10px;overflow:hidden;padding:10px 14px;gap:4px;font-family:var(--font-mono);font-size:12px;line-height:1.5;">
+            <sc-for list="{{ dockLines }}" as="l" hint-placeholder-count="4">
+              <div style="{{ l.style }}">{{ l.text }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  </div>
+
+  <!-- ===================== OVERLAYS ===================== -->
+  <sc-if value="{{ ovWsMenu }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:40px;left:158px;z-index:100;min-width:250px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:12px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.28);font-size:12px;">
+      <div style="padding:8px 10px 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);">Workspaces</div>
+      <sc-for list="{{ wsMenuItems }}" as="w" hint-placeholder-count="3">
+        <div style="{{ w.style }}">
+          <span style="width:12px;color:var(--accent);">{{ w.tick }}</span>
+          <span>{{ w.name }}</span>
+          <span style="color:var(--text-dim);font-size:11px;">{{ w.meta }}</span>
+          <span style="margin-left:auto;color:var(--text-dim);font-size:11px;letter-spacing:1px;">{{ w.key }}</span>
+        </div>
+      </sc-for>
+      <div style="height:1px;background:var(--border);margin:4px 6px;"></div>
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px 6px 28px;border-radius:7px;">New workspace…</div>
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px 6px 28px;border-radius:7px;">Manage workspaces…</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ ovProjMenu }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:318px;left:168px;z-index:100;min-width:210px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:12px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.28);font-size:12px;">
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px;border-radius:7px;white-space:nowrap;">New session…</div>
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px;border-radius:7px;white-space:nowrap;">Project shell</div>
+      <div style="height:1px;background:var(--border);margin:4px 6px;"></div>
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px;border-radius:7px;white-space:nowrap;background:var(--border);">Move to workspace<span style="margin-left:auto;color:var(--text-dim);font-size:11px;">▸</span></div>
+      <div style="height:1px;background:var(--border);margin:4px 6px;"></div>
+      <div style="display:flex;align-items:center;gap:24px;padding:6px 10px;border-radius:7px;white-space:nowrap;color:var(--danger);background:color-mix(in srgb,var(--danger) 9%,transparent);">Remove project (deletes all its sessions)</div>
+    </div>
+    <div style="position:absolute;top:378px;left:452px;z-index:101;min-width:190px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:12px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.28);font-size:12px;">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;"><span style="width:12px;"></span>Main</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;color:var(--text-dim);"><span style="width:12px;color:var(--accent);">✓</span>Work<span style="margin-left:auto;font-size:11px;">current</span></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;background:var(--border);"><span style="width:12px;"></span>OSS</div>
+      <div style="height:1px;background:var(--border);margin:4px 6px;"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;"><span style="width:12px;"></span>New workspace…</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ ovDrag }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:122px;left:396px;z-index:102;display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:7px;background:var(--bg-elevated);border:1px solid var(--accent);box-shadow:0 8px 24px rgba(0,0,0,0.28);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text);">
+      <span style="width:9px;height:9px;border-radius:2px;background:var(--proj-6);"></span>infra
+      <span style="font-weight:500;text-transform:none;letter-spacing:normal;color:var(--text-dim);">→ move to OSS</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ ovSettings }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;z-index:50;background:var(--scrim);backdrop-filter:blur(3px);display:flex;justify-content:center;">
+      <div style="margin-top:48px;width:760px;height:624px;display:flex;flex-direction:column;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.28);overflow:hidden;">
+        <div style="display:flex;flex:1;min-height:0;">
+          <div style="width:190px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:14px 10px;">
+            <div style="font-size:15px;font-weight:600;padding:0 6px 12px;">Settings</div>
+            <div style="background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:10px;color:var(--text-dim);font-size:12px;padding:6px 10px;margin-bottom:8px;">Search settings…</div>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <sc-for list="{{ settingsNav }}" as="n" hint-placeholder-count="10">
+                <div style="{{ n.style }}">{{ n.label }}</div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:1;overflow:hidden;padding:16px 20px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);margin-bottom:10px;">Workspaces</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;line-height:1.45;">A workspace is a label on a project. Switching filters the Console and Board to that workspace's projects; sessions elsewhere keep running. Deleting a workspace moves its projects to Main.</div>
+            <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+              <sc-for list="{{ wsSettingsRows }}" as="w" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text-dim);font-size:11px;letter-spacing:-2px;width:12px;">⋮⋮</span>
+                  <sc-if value="{{ w.renaming }}" hint-placeholder-val="{{ false }}">
+                    <span style="width:150px;background:var(--bg-inset);border:1px solid var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);border-radius:4px;color:var(--text);font-size:12px;padding:3px 6px;">{{ w.name }}<span style="color:var(--accent);">|</span></span>
+                  </sc-if>
+                  <sc-if value="{{ w.notRenaming }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-size:12.5px;font-weight:500;color:var(--text);">{{ w.name }}</span>
+                  </sc-if>
+                  <span style="font-size:11px;color:var(--text-dim);white-space:nowrap;">{{ w.tag }}</span>
+                  <span style="flex:1;"></span>
+                  <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);white-space:nowrap;">{{ w.projects }}</span>
+                  <span style="flex-shrink:0;display:flex;align-items:center;justify-content:space-between;width:150px;background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:10px;color:var(--text);font-size:12px;padding:4px 8px;font-family:var(--font-mono);"><span>{{ w.theme }}</span><span style="color:var(--text-dim);">▾</span></span>
+                  <span style="border:1px solid var(--border-strong);border-radius:4px;color:var(--text-muted);font-size:11px;line-height:1.4;padding:0 6px;">✎</span>
+                  <span style="{{ w.delStyle }}">✕</span>
+                </div>
+              </sc-for>
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;">
+                <span style="flex:1;background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:4px;color:var(--text-dim);font-size:12px;padding:5px 8px;">New workspace name</span>
+                <span style="background:var(--border);border:1px solid var(--border-strong);border-radius:7px;color:var(--text);font-size:12px;padding:5px 12px;">＋ Add</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--border);margin-top:8px;">
+              <div><span style="display:block;font-size:12px;font-weight:500;color:var(--text);">Open on launch</span><div style="font-size:11px;color:var(--text-dim);margin-top:2px;line-height:1.4;">Which workspace CC-GUI starts in. A named workspace falls back to Main if it's deleted.</div></div>
+              <span style="flex-shrink:0;display:flex;align-items:center;justify-content:space-between;width:240px;background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:10px;color:var(--text);font-size:12px;padding:4px 8px;font-family:var(--font-mono);"><span>Last used</span><span style="color:var(--text-dim);">▾</span></span>
+            </div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 0;">
+              <div><span style="display:block;font-size:12px;font-weight:500;color:var(--text);">Main label</span><div style="font-size:11px;color:var(--text-dim);margin-top:2px;line-height:1.4;">Display name for the built-in workspace that holds untagged projects.</div></div>
+              <span style="flex-shrink:0;width:240px;background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:10px;color:var(--text);font-size:12px;padding:4px 8px;font-family:var(--font-mono);">Main</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding:12px 16px;">
+          <span style="background:var(--border);border:1px solid var(--border-strong);border-radius:7px;color:var(--text);font-size:12px;padding:5px 12px;">Cancel</span>
+          <span style="background:var(--accent);border:1px solid var(--accent);border-radius:7px;color:var(--bg-inset);font-size:12px;font-weight:600;padding:5px 12px;">Save</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ ovDelete }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;z-index:150;background:var(--scrim);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;">
+      <div style="width:380px;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.28);padding:16px 18px;">
+        <div style="font-size:13px;white-space:pre-wrap;margin-bottom:14px;line-height:1.45;">Delete workspace "OSS"?
+Its 2 projects (dotfiles, ratatui-widgets) move to Main. No sessions are stopped.</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <span style="background:var(--border);border:1px solid var(--border-strong);border-radius:7px;color:var(--text);font-size:12px;padding:5px 12px;">Cancel</span>
+          <span style="background:var(--border);border:1px solid var(--danger);border-radius:7px;color:var(--danger);font-size:12px;padding:5px 12px;">Delete</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800},&quot;view&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;console&quot;,&quot;board&quot;],&quot;default&quot;:&quot;console&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;switcher&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;titlebar&quot;,&quot;sidebar&quot;],&quot;default&quot;:&quot;none&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ws&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Main&quot;,&quot;Work&quot;,&quot;OSS&quot;],&quot;default&quot;:&quot;Main&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;overlay&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;wsMenu&quot;,&quot;projMenu&quot;,&quot;drag&quot;,&quot;settings&quot;,&quot;delete&quot;],&quot;default&quot;:&quot;none&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;mocha&quot;,&quot;tokyo&quot;],&quot;default&quot;:&quot;mocha&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const PROJECTS = [
+  { name: 'cc-gui', ws: null, proj: 0, sessions: [
+    { t: 'workspace switcher', b: 'workspace-switcher', st: 'running', sec: 'In Progress', diff: [412, 38], active: true, tab: true },
+    { t: 'review ring polish', b: 'ed/review-ring', st: 'waiting', sec: 'Review', diff: [86, 12], pr: 142, tab: true },
+    { t: 'fix dock resize', b: 'fix-dock-resize', st: 'idle', sec: 'In Progress', diff: [23, 9] },
+  ]},
+  { name: 'claude-commander', ws: null, proj: 4, sessions: [
+    { t: 'workspace themes', b: 'workspace-themes', st: 'finished', sec: 'Review', pr: 318, diff: [640, 102], comments: true, tab: true },
+    { t: 'flutter parity', b: 'flutter-parity', st: 'stopped', sec: 'In Progress' },
+  ]},
+  { name: 'atlas-api', ws: 'Work', proj: 2, sessions: [
+    { t: 'rate limiter', b: 'rate-limiter', st: 'running', sec: 'In Progress', diff: [188, 20], active: true, tab: true },
+    { t: 'auth token refresh', b: 'fix/token-refresh', st: 'waiting', sec: 'Review', pr: 88, diff: [54, 31], tab: true },
+    { t: 'migrate to pg16', b: 'migrate-to-pg16', st: 'hibernated', sec: 'In Progress' },
+  ]},
+  { name: 'web-app', ws: 'Work', proj: 1, sessions: [
+    { t: 'billing page', b: 'billing-page', st: 'idle', sec: 'In Progress', comments: true, diff: [302, 77], tab: true },
+    { t: 'onboarding copy', b: 'onboarding-copy', st: 'finished', sec: 'Ready to merge', pr: 311, approved: true, diff: [41, 40] },
+  ]},
+  { name: 'infra', ws: 'Work', proj: 6, blocked: true, sessions: [
+    { t: 'terraform 1.9 upgrade', b: 'tf-1.9', st: 'running', sec: 'In Progress', diff: [96, 88] },
+  ]},
+  { name: 'dotfiles', ws: 'OSS', proj: 5, sessions: [
+    { t: 'nvim lsp config', b: 'nvim-lsp-config', st: 'stopped', sec: 'In Progress' },
+  ]},
+  { name: 'ratatui-widgets', ws: 'OSS', proj: 3, sessions: [
+    { t: 'scrollbar widget', b: 'scrollbar-widget', st: 'running', sec: 'In Progress', diff: [233, 14], active: true, tab: true },
+    { t: 'docs examples', b: 'docs/examples', st: 'finished', sec: 'Review', pr: 57, diff: [120, 6], tab: true },
+  ]},
+];
+const WS = ['Main', 'Work', 'OSS'];
+const STATE = {
+  running: { c: 'var(--success)', word: 'Running', kind: 'fill' },
+  finished: { c: 'var(--warning)', word: 'Done', kind: 'fill' },
+  idle: { c: 'var(--cyan)', word: 'Idle', kind: 'ring' },
+  stopped: { c: 'var(--text-dim)', word: 'Stopped', kind: 'fill', bg: 16 },
+  waiting: { c: 'var(--warning)', word: 'Waiting', kind: 'glyph', g: '?' },
+  hibernated: { c: 'var(--text-dim)', word: 'Hibernated', kind: 'glyph', g: '☾', bg: 16 },
+};
+const TOKYO = { '--bg-base': '#1a1b26', '--bg-elevated': '#16161e', '--bg-inset': '#13131a', '--border': '#292e42', '--border-strong': '#414868', '--text': '#c0caf5', '--text-muted': '#a9b1d6', '--text-dim': '#565f89', '--accent': '#7aa2f7', '--success': '#9ece6a', '--danger': '#f7768e', '--warning': '#e0af68', '--attention': '#ff9e64', '--info': '#bb9af7', '--cyan': '#7dcfff', '--surface2': '#414868' };
+const slug = (v) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+function dotStyle(st, size) {
+  const s = STATE[st];
+  if (s.kind === 'glyph') return { flexShrink: 0, color: s.c, fontSize: 11, fontWeight: st === 'waiting' ? 700 : 400, lineHeight: 1 };
+  const base = { width: size, height: size, borderRadius: '50%', flexShrink: 0, fontSize: 0 };
+  if (s.kind === 'ring') return { ...base, background: 'transparent', boxShadow: `inset 0 0 0 1.5px ${s.c}` };
+  const o = { ...base, background: s.c };
+  if (st === 'running') o.boxShadow = `0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent)`;
+  return o;
+}
+function prStyle(s) {
+  const c = s.pr_state === 'merged' ? 'var(--info)' : 'var(--success)';
+  return { fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, padding: '0 5px', borderRadius: 8, flexShrink: 0, color: c, border: `1px solid ${c}`, alignSelf: 'center' };
+}
+
+class Component extends DCLogic {
+  renderVals() {
+    const view = this.props.view ?? 'console';
+    const sw = this.props.switcher ?? 'none';
+    const ws = this.props.ws ?? 'Main';
+    const overlay = this.props.overlay ?? 'none';
+    const theme = this.props.theme ?? 'mocha';
+    const dragging = overlay === 'drag';
+
+    const visible = PROJECTS.filter((p) => sw === 'none' || (p.ws ?? 'Main') === ws);
+    const all = visible.flatMap((p) => p.sessions.map((s) => ({ ...s, p })));
+    const active = sw === 'none' ? all.find((s) => s.p.name === 'cc-gui' && s.active) : all.find((s) => s.active) ?? all[0];
+
+    const decorate = (s) => {
+      const st = STATE[s.st];
+      const sel = s === active;
+      return {
+        title: s.t, branch: s.b, showBranch: slug(s.t) !== slug(s.b), word: st.word,
+        glyph: st.kind === 'glyph' ? st.g : '',
+        dotStyle: dotStyle(s.st, 9),
+        chipStyle: { display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '2px 8px', borderRadius: 7, fontSize: 11, fontWeight: 600, lineHeight: 1, whiteSpace: 'nowrap', color: st.c, background: `color-mix(in srgb, ${st.c} ${st.bg ?? 14}%, transparent)` },
+        compactChipStyle: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 600, lineHeight: 1.4, whiteSpace: 'nowrap', color: st.c, background: `color-mix(in srgb, ${st.c} ${st.bg ?? 14}%, transparent)` },
+        chipDotStyle: st.kind === 'glyph' ? { lineHeight: 1 } : { width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: st.c },
+        chipGlyph: st.kind === 'glyph' ? st.g : '',
+        pr: s.pr ? `#${s.pr}${s.approved ? ' ✓' : ''}` : '',
+        prStyle: prStyle(s),
+        comments: !!s.comments,
+        blocked: !!s.p.blocked,
+        hasChips: !!(s.pr || s.comments || s.p.blocked),
+        selected: sel,
+        rowStyle: sel
+          ? { display: 'flex', flexDirection: 'column', padding: '6px 10px 6px 8px', borderRadius: 9, background: 'var(--row-selected-bg)', borderLeft: '2px solid var(--accent)' }
+          : { display: 'flex', flexDirection: 'column', padding: '6px 10px', borderRadius: 9 },
+        cardStyle: { display: 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--bg-elevated)', border: `1px solid ${sel ? 'var(--border-strong)' : 'var(--border)'}`, borderLeft: `3px solid ${st.c}`, borderRadius: 11, overflow: 'hidden', ...(sel ? { outline: '2px solid var(--accent)', outlineOffset: -2 } : {}) },
+        project: s.p.name, projColor: `var(--proj-${s.p.proj})`,
+        hasDiff: !!s.diff, adds: s.diff ? `+${s.diff[0]}` : '', dels: s.diff ? `−${s.diff[1]}` : '',
+        addBar: { flex: s.diff ? s.diff[0] : 0, background: 'var(--success)' },
+        delBar: { flex: s.diff ? s.diff[1] : 0, background: 'var(--danger)' },
+      };
+    };
+
+    const hdr = { display: 'flex', alignItems: 'center', gap: 6, padding: '10px 8px 4px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' };
+    const projects = visible.map((p) => ({
+      name: p.name, color: `var(--proj-${p.proj})`, count: p.sessions.length, blocked: !!p.blocked,
+      headerStyle: dragging && p.name === 'infra' ? { ...hdr, opacity: 0.5 } : overlay === 'projMenu' && p.name === 'web-app' ? { ...hdr, background: 'var(--row-hover-bg)', borderRadius: 7, color: 'var(--text)' } : hdr,
+      sessions: p.sessions.map((s) => decorate(all.find((x) => x.t === s.t))),
+    }));
+
+    const live = all.filter((s) => s.st === 'running').length;
+    const waiting = all.filter((s) => s.st === 'waiting' || s.st === 'finished').length;
+
+    const tabs = all.filter((s) => s.tab).slice(0, 4).map((s) => {
+      const st = STATE[s.st];
+      const on = s === active;
+      return {
+        title: s.t, glyph: st.kind === 'glyph' ? st.g : '',
+        dotStyle: st.kind === 'glyph' ? { color: st.c, fontSize: 10, lineHeight: 1, flexShrink: 0, fontWeight: 700 } : dotStyle(s.st, 8),
+        style: { display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px 0 16px', fontSize: 13, color: on ? 'var(--text)' : 'var(--text-muted)', borderRight: '1px solid var(--border)', borderTop: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, background: on ? 'var(--bg-base)' : 'transparent', whiteSpace: 'nowrap' },
+      };
+    });
+
+    const L = (text, color, extra) => ({ text, style: { color: color ?? 'var(--text-muted)', whiteSpace: 'pre', ...(extra || {}) } });
+    const at = active ?? { t: '', b: '' };
+    const termLines = [
+      L(`╭─ ${at.t}  ·  ${at.p ? at.p.name : ''}`, 'var(--text-dim)'),
+      L(`> ${at.t === 'workspace switcher' ? 'add a workspace chip to the title bar' : 'continue with the plan in PLAN.md'}`, 'var(--text)'),
+      L('● Read(src/chrome/titlebar.ts)', 'var(--accent)'),
+      L('  ⎿  Read 64 lines', 'var(--text-dim)'),
+      L('● Update(src/app/store.ts)', 'var(--accent)'),
+      L('  ⎿  Updated with 18 additions and 2 removals', 'var(--text-dim)'),
+      L('✻ Thinking…', 'var(--info)'),
+      L(''),
+      L('────────────────────────────────────────────────────────────────', 'var(--border-strong)'),
+      L('>  ', 'var(--text)'),
+      L('────────────────────────────────────────────────────────────────', 'var(--border-strong)'),
+      L(`  ⏵⏵ accept edits on   ·   ${at.b}`, 'var(--text-dim)'),
+    ];
+    const dockLines = termLines.slice(1, 7);
+
+    const secs = ['In Progress', 'Review', 'Ready to merge'];
+    const columns = secs.map((name) => {
+      const cards = all.filter((s) => s.sec === name).map(decorate);
+      return { name, count: cards.length, cards };
+    });
+
+    const segOn = { border: 'none', background: 'var(--border)', color: 'var(--text)', fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 6 };
+    const segOff = { ...segOn, background: 'transparent', color: 'var(--text-dim)' };
+
+    const wsTabs = WS.map((name) => {
+      const on = name === ws;
+      const drop = dragging && name === 'OSS';
+      return { name, style: { display: 'flex', alignItems: 'center', padding: '0 10px', fontSize: 12, fontWeight: 600, color: on ? 'var(--text)' : drop ? 'var(--text)' : 'var(--text-dim)', borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, ...(drop ? { outline: '2px solid var(--accent)', outlineOffset: -4, background: 'var(--border)', borderRadius: 7 } : {}) } };
+    });
+    const wsSegs = WS.map((name) => ({ name, style: { padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 500, ...(name === ws ? { background: 'var(--accent)', color: 'var(--bg-inset)' } : { color: 'var(--text-muted)' }) } }));
+
+    const countFor = (n) => PROJECTS.filter((p) => (p.ws ?? 'Main') === n).length;
+    const wsMenuItems = WS.map((name, i) => ({
+      name, tick: name === ws ? '✓' : '', meta: `${countFor(name)} projects`, key: `⌘⇧${i + 1}`,
+      style: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', ...(name === 'OSS' ? { background: 'var(--border)' } : {}) },
+    }));
+
+    const navLabels = ['General', 'Sessions & Worktrees', 'Hibernation', 'Git & PRs', 'AI summaries', 'Commander', 'Conversation (TTS)', 'Voice input (STT)', 'Telemetry', 'Sections', 'Workspaces', 'Terminal UI'];
+    const settingsNav = navLabels.map((label) => ({ label, style: { borderRadius: 10, fontSize: 12.5, padding: '8px 10px', color: label === 'Workspaces' ? 'var(--text)' : 'var(--text-muted)', background: label === 'Workspaces' ? 'var(--row-selected-bg)' : 'transparent' } }));
+    const rowAct = { border: '1px solid var(--border-strong)', borderRadius: 4, color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.4, padding: '0 6px' };
+    const wsSettingsRows = [
+      { name: 'Main', tag: 'built-in', projects: `${countFor('Main')} projects`, theme: 'Global theme', delStyle: { ...rowAct, visibility: 'hidden' } },
+      { name: 'Work', tag: '', projects: `${countFor('Work')} projects`, theme: 'Global theme', delStyle: rowAct },
+      { name: 'OSS', tag: '', projects: `${countFor('OSS')} projects`, theme: 'Tokyo Night', delStyle: rowAct, renaming: false },
+    ].map((r) => ({ ...r, renaming: !!r.renaming, notRenaming: !r.renaming }));
+
+    return {
+      themeVars: theme === 'tokyo' ? TOKYO : {},
+      ws, swTitlebar: sw === 'titlebar', swSidebar: sw === 'sidebar', swSidebarOff: sw !== 'sidebar',
+      wsChipBorder: dragging ? 'var(--accent)' : overlay === 'wsMenu' ? 'var(--border-strong)' : 'var(--border)',
+      wsChipBg: dragging ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : overlay === 'wsMenu' ? 'var(--border)' : 'transparent',
+      countText: `${all.length} sessions · ${live} live`,
+      hasWaiting: waiting > 0, waitingText: `${waiting} waiting on you`,
+      segConsole: view === 'console' ? segOn : segOff, segBoard: view === 'board' ? segOn : segOff,
+      isConsole: view === 'console', isBoard: view === 'board',
+      projects, tabs, termLines, dockLines, columns, wsTabs, wsSegs, wsMenuItems, settingsNav, wsSettingsRows,
+      activeTitle: at.t, activeBranch: at.b,
+      ovWsMenu: overlay === 'wsMenu' || dragging, ovProjMenu: overlay === 'projMenu', ovDrag: dragging, ovSettings: overlay === 'settings', ovDelete: overlay === 'delete',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+@font-face{font-family:"IBM Plex Sans";font-weight:400;src:url("src/assets/fonts/IBMPlexSans-Regular.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Sans";font-weight:600;src:url("src/assets/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;src:url("src/assets/fonts/IBMPlexMono-Regular.woff2") format("woff2");}
+*,*::before,*::after{box-sizing:border-box;margin:0;}
+html{background:#0e0e16;}
+body{margin:0;background:#0e0e16;width:max-content;min-width:100%;color:#e4e8fb;font-family:"IBM Plex Sans",sans-serif;}
+a{color:#8fb8ff;text-decoration:none;}
+a:hover{color:#cba6f7;}
+</style>
+</helmet>
+
+<section style="padding:64px 64px 32px;display:flex;flex-direction:column;gap:28px;">
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:1100px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#8a90ad;">Turn 1 · claude-commander workspaces</div>
+    <div style="font-size:32px;font-weight:600;">Workspaces in the Console and Board</div>
+    <div style="font-size:15px;color:#b7bedd;line-height:1.55;text-wrap:pretty;">Upstream, a workspace is a label on a project; untagged projects belong to the built-in Main. Switching is a hard client-side filter: the sidebar, tab strip, board columns, title-bar counts and attention pill all scope to the active workspace. Sessions in other workspaces keep running. Mocks use a Work workspace (atlas-api, web-app, infra) with Main (cc-gui, claude-commander) and OSS (dotfiles, ratatui-widgets) alongside.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:64px;align-items:flex-start;">
+    <div id="1a" style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#8fb8ff;color:#11111b;padding:4px 10px;border-radius:7px;">1a</span>
+        <span style="font-size:20px;font-weight:600;">Title-bar switcher</span>
+      </div>
+      <div style="font-size:14px;color:#b7bedd;max-width:1280px;line-height:1.5;">A workspace chip beside the claude-commander name. It lives in the title bar, so Console and Board share one switcher and the scope stays visible in both. Keyboard: ⌘⇧1–9 jumps directly, and ⌘K gets "Switch workspace" commands.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="Work" hint-size="1280px,800px"></dc-import>
+      <div style="font-size:13px;color:#8a90ad;">Board, same workspace: columns only hold Work sessions, and the project filter lists only Work projects.</div>
+      <dc-import name="CCFrame" view="board" switcher="titlebar" ws="Work" hint-size="1280px,800px"></dc-import>
+      <div style="font-size:13px;color:#8a90ad;">Chip open: workspaces in display order with project counts and shortcuts, plus create and manage.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="Work" overlay="wsMenu" hint-size="1280px,800px"></dc-import>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:40px;max-width:1100px;">
+    <div style="font-size:22px;font-weight:600;">Management flows</div>
+    <div style="font-size:14px;color:#b7bedd;line-height:1.5;">All built on the <a href="#1a">1a</a> title-bar chip.</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:64px;align-items:flex-start;">
+    <div id="1c" style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#cba6f7;color:#11111b;padding:4px 10px;border-radius:7px;">1c</span>
+        <span style="font-size:20px;font-weight:600;">Move project to workspace</span>
+      </div>
+      <div style="font-size:14px;color:#b7bedd;max-width:1280px;line-height:1.5;">A new submenu on the project header's context menu. "New workspace…" creates the workspace and moves the project into it in one step, since the server defines a workspace on first use.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="Work" overlay="projMenu" hint-size="1280px,800px"></dc-import>
+      <div style="font-size:13px;color:#8a90ad;">Or drag a project header onto the workspace chip: it opens the menu, and dropping on a workspace moves the project there.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="Work" overlay="drag" hint-size="1280px,800px"></dc-import>
+    </div>
+    <div id="1d" style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#cba6f7;color:#11111b;padding:4px 10px;border-radius:7px;">1d</span>
+        <span style="font-size:20px;font-weight:600;">Settings › Workspaces</span>
+      </div>
+      <div style="font-size:14px;color:#b7bedd;max-width:1280px;line-height:1.5;">"Manage workspaces…" opens this panel. Here you create, rename, reorder and delete workspaces, and set each one's theme, the startup workspace (last / main / named) and Main's label. Names follow the upstream rules: 40 characters max, and "main" and "last" are reserved.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="Work" overlay="settings" hint-size="1280px,800px"></dc-import>
+    </div>
+    <div id="1e" style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#cba6f7;color:#11111b;padding:4px 10px;border-radius:7px;">1e</span>
+        <span style="font-size:20px;font-weight:600;">Delete workspace</span>
+      </div>
+      <div style="font-size:14px;color:#b7bedd;max-width:1280px;line-height:1.5;">Uses the existing confirm dialog. It spells out the consequence: the projects move to Main, and nothing is stopped.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="OSS" overlay="delete" theme="tokyo" hint-size="1280px,800px"></dc-import>
+    </div>
+    <div id="1f" style="display:flex;flex-direction:column;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#cba6f7;color:#11111b;padding:4px 10px;border-radius:7px;">1f</span>
+        <span style="font-size:20px;font-weight:600;">Per-workspace theme</span>
+      </div>
+      <div style="font-size:14px;color:#b7bedd;max-width:1280px;line-height:1.5;">OSS is set to Tokyo Night (see <a href="#1d">1d</a>), so switching to it re-skins the chrome, terminal and diffs. That makes a workspace change obvious at a glance. Like the TUI's [workspace_themes], the theme is stored locally and keyed by workspace name.</div>
+      <dc-import name="CCFrame" view="console" switcher="titlebar" ws="OSS" theme="tokyo" hint-size="1280px,800px"></dc-import>
+      <dc-import name="CCFrame" view="board" switcher="titlebar" ws="OSS" theme="tokyo" hint-size="1280px,800px"></dc-import>
+    </div>
+  </div>
+</section>
+
+<section style="padding:32px 64px 96px;display:flex;flex-direction:column;gap:28px;">
+  <div style="display:flex;flex-direction:column;gap:8px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#8a90ad;">Baseline</div>
+    <div style="font-size:22px;font-weight:600;">Current CC-GUI (no workspaces)</div>
+    <div style="font-size:14px;color:#b7bedd;">Recreated from src/style.css and the view modules, showing every project at once.</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:64px;align-items:flex-start;">
+    <div id="0a" style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#4a4c68;color:#e4e8fb;padding:4px 10px;border-radius:7px;">0a</span><span style="font-size:18px;font-weight:600;">Console</span></div>
+      <dc-import name="CCFrame" view="console" switcher="none" hint-size="1280px,800px"></dc-import>
+    </div>
+    <div id="0b" style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;background:#4a4c68;color:#e4e8fb;padding:4px 10px;border-radius:7px;">0b</span><span style="font-size:18px;font-weight:600;">Board</span></div>
+      <dc-import name="CCFrame" view="board" switcher="none" hint-size="1280px,800px"></dc-import>
+    </div>
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
