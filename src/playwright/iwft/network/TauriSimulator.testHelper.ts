@@ -389,10 +389,7 @@ class TauriSimulator {
         // config carries them.
         return { ...this.config, ...this.workspaces.configFields() };
       case "save_config":
-        // What the frontend sent. The real save keeps the current workspace
-        // fields whatever the form carried, which the fake gets for free: its
-        // workspace state lives apart from `config`.
-        this.savedConfig = args.config as Record<string, unknown>;
+        this.saveConfig(args.config as Record<string, unknown>);
         return false; // restartRequired
       case "open_review":
         return this.openReview(args.id as string);
@@ -416,6 +413,21 @@ class TauriSimulator {
         console.warn(`[iwft] unhandled command: ${cmd}`);
         return null;
     }
+  }
+
+  /** save_config, as settings.rs's `config_to_save` does it: the form's copy
+   *  replaces the config, except the workspace fields, which always stay as
+   *  they are now (workspace_themes kept in `config`; the rest live in the
+   *  workspace state, so a stale form's copy of them is simply dropped). The
+   *  form as sent is kept for assertions (getSavedConfig). */
+  private saveConfig(form: Record<string, unknown>): void {
+    this.savedConfig = form;
+    const next = { ...form };
+    for (const key of ["workspaces", "main_workspace", "startup_workspace", "workspace_themes"]) {
+      delete next[key];
+    }
+    if ("workspace_themes" in this.config) next.workspace_themes = this.config.workspace_themes;
+    this.config = next;
   }
 
   // ----- sidebar mutations (frontend reads them back via refreshNow→get_groups) -----

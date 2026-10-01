@@ -110,3 +110,19 @@ test("new projects land in the workspace they're added to", async ({ sidebar }) 
   );
   expect(projects.find((p) => p.name === "new-thing")?.workspace).toBe("OSS");
 });
+
+test("a settings save from a stale form keeps the current workspace fields", async ({
+  sidebar,
+}) => {
+  const page = sidebar.page;
+  // The form loaded the config before these workspace edits landed.
+  const form = await invoke<Record<string, unknown>>(page, "get_config");
+  await invoke(page, "create_workspace", { name: "Side" });
+  await invoke(page, "set_startup_workspace", { value: "Side" });
+  await invoke(page, "save_config", { config: { ...form, ai_summary_enabled: false } });
+
+  const config = await invoke<Record<string, unknown>>(page, "get_config");
+  expect(config.workspaces).toEqual([{ name: "Work" }, { name: "OSS" }, { name: "Side" }]);
+  expect(config.startup_workspace).toBe("Side");
+  expect(config.ai_summary_enabled).toBe(false);
+});

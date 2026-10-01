@@ -68,6 +68,16 @@ fn project_uuid(id: &claude_commander_core::session::ProjectId) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
+/// Projects in snapshot display order (by name). The one ordering both the
+/// snapshot's groups and the merged workspace list's tag-only tail follow.
+pub fn projects_in_display_order(
+    state: &claude_commander_core::AppState,
+) -> Vec<&claude_commander_core::session::Project> {
+    let mut projects: Vec<_> = state.projects.values().collect();
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    projects
+}
+
 /// Snapshot projects + sessions from the shared state store. Agent states are
 /// filled by the caller (the polling loop has the detector; the initial
 /// `get_groups` call reports "unknown" and lets the next tick correct it).
@@ -77,7 +87,10 @@ pub async fn build_groups(
 ) -> Vec<ProjectGroup> {
     let (projects, sessions) = {
         let state = svc.store().read().await;
-        let projects: Vec<_> = state.projects.values().cloned().collect();
+        let projects: Vec<_> = projects_in_display_order(&state)
+            .into_iter()
+            .cloned()
+            .collect();
         let sessions: Vec<_> = state.sessions.values().cloned().collect();
         (projects, sessions)
     };
@@ -85,9 +98,6 @@ pub async fn build_groups(
         .sessions_with_pending_comments()
         .await
         .unwrap_or_default();
-
-    let mut projects = projects;
-    projects.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut groups: Vec<ProjectGroup> = Vec::with_capacity(projects.len());
     for p in projects {

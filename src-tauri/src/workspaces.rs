@@ -16,8 +16,8 @@ use claude_commander_core::api::CommanderService;
 use claude_commander_core::error::SessionError;
 use claude_commander_core::Config;
 use claude_commander_protocol::workspace::{
-    validate_workspace_name, SetWorkspacesRequest, StartupWorkspace, WorkspaceDef,
-    WorkspaceRejection,
+    validate_workspace_label, validate_workspace_name, SetWorkspacesRequest, StartupWorkspace,
+    WorkspaceDef, WorkspaceRejection,
 };
 use claude_commander_viewmodel::workspace::{self as vm, MergedWorkspace, WorkspaceSource};
 use serde::Serialize;
@@ -60,11 +60,9 @@ pub fn merged_workspaces<'a>(
 async fn current_merged(svc: &CommanderService, config: &Config) -> Vec<MergedWorkspace> {
     let tags: Vec<String> = {
         let state = svc.store().read().await;
-        let mut projects: Vec<_> = state.projects.values().collect();
         // The snapshot's project order, so tag-only workspaces line up with it.
-        projects.sort_by(|a, b| a.name.cmp(&b.name));
-        projects
-            .iter()
+        crate::groups::projects_in_display_order(&state)
+            .into_iter()
             .filter_map(|p| p.workspace.clone())
             .collect()
     };
@@ -75,13 +73,15 @@ async fn current_merged(svc: &CommanderService, config: &Config) -> Vec<MergedWo
 /// accept: upstream's `definitions_for_server` keeps every name the config
 /// already defines and drops a tag-only name that clashes case-insensitively
 /// with one of them or with Main's label, so a stray tag can't make every edit
-/// fail validation.
+/// fail validation. Main's stored label counts only when valid, as in
+/// `set_workspace_defs`, so a hand-broken label can't narrow anything out.
 fn defs_for(config: &Config, wanted: &[WorkspaceDef]) -> Vec<WorkspaceDef> {
-    vm::definitions_for_server(
-        wanted,
-        &config.workspaces,
-        config.main_workspace.as_ref().map(|m| m.name.as_str()),
-    )
+    let main_label = config
+        .main_workspace
+        .as_ref()
+        .map(|m| m.name.as_str())
+        .filter(|label| validate_workspace_label(label).is_ok());
+    vm::definitions_for_server(wanted, &config.workspaces, main_label)
 }
 
 fn named_defs(merged: &[MergedWorkspace]) -> Vec<WorkspaceDef> {
@@ -158,6 +158,9 @@ pub fn main_label_request(config: &Config, label: &str) -> SetWorkspacesRequest 
 /// Set the startup choice (`"last"`, `"main"` or a workspace name). A pinned
 /// name must be defined, so one that is only a project tag gets a definition
 /// appended - the same self-heal as moving a project, and what the TUI does.
+/// The match is exact, like upstream's `ensure_workspace_defined`: a re-cased
+/// spelling of an existing name is refused by validation ("defined twice")
+/// rather than guessed at, so callers pass a name from the merged list.
 pub fn startup_request(config: &Config, value: &str) -> SetWorkspacesRequest {
     let startup = StartupWorkspace::from(value.to_string());
     let mut workspaces = config.workspaces.clone();
