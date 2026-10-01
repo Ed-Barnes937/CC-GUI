@@ -123,20 +123,22 @@ function manageWorkspaces(): void {
 
 const countLabel = (n: number) => `${n} ${n === 1 ? "project" : "projects"}`;
 
-/** The workspace rows of the chip's menu: a tick on the active one, project
- *  counts, Cmd+Shift+N. `pick` is what a row does; `inert` marks rows that do
- *  nothing (the active one, when the menu is a drop target for a project
- *  already in it). */
+/** The workspace rows of the chip's menu: a tick, project counts,
+ *  Cmd+Shift+N. `pick` is what a row does. The tick goes on `ticked` (the
+ *  active workspace unless told otherwise); `inert` rows do nothing (a
+ *  project's own workspace, when the menu is a drop target for it). */
 export function workspaceRows(
   pick: (w: WorkspaceEntry) => void,
-  inert: (w: WorkspaceEntry) => boolean = () => false,
+  {
+    ticked = activeWorkspace(),
+    inert = () => false,
+  }: { ticked?: string | null; inert?: (w: WorkspaceEntry) => boolean } = {},
 ): MenuItem[] {
-  const active = activeWorkspace();
   const projects = allGroups();
   return workspaces().map(
     (w, i): MenuItem => ({
       label: w.label,
-      checked: w.name === active,
+      checked: w.name === ticked,
       meta: countLabel(projectCount(projects, w.name)),
       shortcut: workspaceShortcut(i),
       disabled: inert(w) || undefined,

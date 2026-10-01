@@ -25,10 +25,13 @@ import { createWorkspaceFromPrompt, showWorkspaceMenu, switchWorkspace, workspac
 
 // ------------------------------------------------------------------- move
 
+/** A project's workspace (null = Main). */
+const workspaceOf = (group: ProjectGroup): string | null => group.workspace ?? null;
+
 /** Tag `group` with workspace `target` (null = Main), then offer to follow it
  *  there. Moving to the workspace it's already in is a no-op. */
 export async function moveProjectTo(group: ProjectGroup, target: string | null): Promise<void> {
-  if ((group.workspace ?? null) === target) return;
+  if (workspaceOf(group) === target) return;
   try {
     await invoke("set_project_workspace", { projectId: group.id, workspace: target });
   } catch (e) {
@@ -63,7 +66,7 @@ export function moveOffered(): boolean {
 /** The "Move to workspace ▸" submenu: every workspace, the project's own
  *  ticked, dimmed and tagged "current", then "New workspace…". */
 export function moveSubmenuItems(group: ProjectGroup): MenuItem[] {
-  const current = group.workspace ?? null;
+  const current = workspaceOf(group);
   return [
     ...workspaces().map(
       (w): MenuItem => ({
@@ -176,13 +179,13 @@ export function draggableToWorkspace(header: HTMLElement, projectId: string): vo
  *  rather than switching to it, the project's own workspace inert. "Manage
  *  workspaces…" is left out: there's nothing to drop a project on there. */
 function dropMenuItems(group: ProjectGroup): MenuItem[] {
-  const current = group.workspace ?? null;
+  const current = workspaceOf(group);
   return [
     { header: "Workspaces" },
-    ...workspaceRows(
-      (w: WorkspaceEntry) => void moveProjectTo(group, w.name),
-      (w) => w.name === current,
-    ),
+    ...workspaceRows((w: WorkspaceEntry) => void moveProjectTo(group, w.name), {
+      ticked: current,
+      inert: (w) => w.name === current,
+    }),
     "separator",
     { label: "New workspace…", indent: true, action: () => void moveProjectToNew(group) },
   ];
