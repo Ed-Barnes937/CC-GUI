@@ -64,6 +64,7 @@ import {
   switchToWorkspaceAt,
   workspacePaletteEntries,
 } from "./chrome/workspaces";
+import { movePaletteEntries, openMoveProjectMenu } from "./chrome/moveProject";
 
 export function cycleSession(delta: number): void {
   // Seed the cursor from the active terminal so the first press moves relative
@@ -287,6 +288,7 @@ registerPaletteProvider(() => [
 ]);
 
 registerPaletteProvider(workspacePaletteEntries);
+registerPaletteProvider(movePaletteEntries);
 
 // Commands contributed by enabled optional features (Settings → Features). Read
 // on each palette open, so a toggle takes effect without a restart.
@@ -506,6 +508,7 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
   previous_workspace: { label: "Previous workspace", run: () => cycleWorkspaces(false) },
   workspace_picker: { label: "Switch workspace…", run: openWorkspaceMenu },
   new_workspace: { label: "New workspace…", run: () => void newWorkspace() },
+  move_project_to_workspace: { label: "Move cursor project to workspace…", run: () => openMoveProjectMenu() },
   shrink_left_pane: { label: "Shrink sidebar", run: () => adjustPanelWidth("cc-sidebar-width", -24) },
   grow_left_pane: { label: "Grow sidebar", run: () => adjustPanelWidth("cc-sidebar-width", 24) },
   // toggle_pane (bare Tab in the TUI) is intentionally not mapped: the GUI has

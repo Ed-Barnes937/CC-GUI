@@ -12,6 +12,7 @@ import { noTextAssist } from "../dom";
 import { createHarnessPicker } from "../harnessPicker";
 import { requestRender } from "../app/render";
 import { refreshNow } from "../app/actions";
+import { activeWorkspace } from "../app/workspaces";
 import type { ProjectGroup } from "../app/types";
 import { startSession } from "../session/create";
 import { setNewSessionProject, setTopInput } from "./state";
@@ -122,10 +123,12 @@ export function renderTopInput(mode: "add" | "scan"): HTMLDivElement {
   function commit(path: string): void {
     setTopInput(null);
     input.disabled = true;
+    // New projects land in the workspace on screen (null = Main).
+    const workspace = activeWorkspace();
     const call =
       mode === "add"
-        ? invoke("add_project", { path })
-        : invoke<{ added: number; skipped: number }>("scan_directory", { path }).then((r) =>
+        ? invoke("add_project", { path, workspace })
+        : invoke<{ added: number; skipped: number }>("scan_directory", { path, workspace }).then((r) =>
             toast(`Scan complete: ${r.added} added, ${r.skipped} already present`),
           );
     call

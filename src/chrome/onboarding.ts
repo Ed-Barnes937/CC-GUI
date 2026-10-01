@@ -17,6 +17,7 @@ import {
   onboardingEl,
 } from "../app/elements";
 import { allGroups, commanderEnabled, layout } from "../app/store";
+import { activeWorkspace } from "../app/workspaces";
 import { terminals } from "../terminal/state";
 import { setTopInput } from "../sidebar/state";
 import { setLayout } from "./layout";
@@ -64,7 +65,7 @@ onboardingAddProjectBtn.addEventListener("click", () => {
   void openFolderDialog({ directory: true }).then((picked) => {
     if (typeof picked === "string") {
       const name = picked.replace(/\/+$/, "").split("/").pop() || picked;
-      invoke("add_project", { path: picked })
+      invoke("add_project", { path: picked, workspace: activeWorkspace() })
         .then(() => toast(`Added ${name}.`))
         .catch((err) => actionErrorToast("add_project", err))
         .finally(() => void refreshNow());

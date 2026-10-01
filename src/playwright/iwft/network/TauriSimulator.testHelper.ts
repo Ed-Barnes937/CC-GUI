@@ -574,17 +574,27 @@ class TauriSimulator {
     return id;
   }
 
-  /** Count seeded dirs nested under `path` as the "added" repos. The fake adds
-   *  no groups, but still validates and defines the workspace like the real
-   *  scan (a refused name fails the whole call). */
+  /** Register every seeded dir nested under `path` as a repo, as the backend
+   *  scan registers each git repo it finds: new ones are added tagged with
+   *  `workspace` (defined on the way; a refused name fails the whole call),
+   *  ones already a project are skipped and keep their workspace. */
   private scanDirectory(
     path: string,
     workspace: string | null | undefined,
   ): { added: number; skipped: number } {
-    this.workspaces.prepareNewProject(workspace);
+    const tag = this.workspaces.prepareNewProject(workspace);
     const prefix = path.endsWith("/") ? path : `${path}/`;
-    const added = this.dirs.filter((d) => d.startsWith(prefix)).length;
-    return { added, skipped: 0 };
+    let added = 0;
+    let skipped = 0;
+    for (const dir of this.dirs.filter((d) => d.startsWith(prefix))) {
+      if (this.snapshot.groups.some((g) => g.repo_path === dir)) {
+        skipped++;
+      } else {
+        this.addProject(dir, tag);
+        added++;
+      }
+    }
+    return { added, skipped };
   }
 
   /** Detail for one session, derived from its snapshot row plus the seeded

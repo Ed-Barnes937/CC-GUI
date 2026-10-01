@@ -237,6 +237,46 @@ body {
   display: none;
 }
 
+/* A project header dragged over the chip: it's a drop target now. */
+.tb-workspace.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* The project header being dragged to another workspace, and its ghost: a
+   mini header (swatch, name, where it's going) that follows the pointer. */
+.project-header.dragging,
+.project-subheader.dragging {
+  opacity: 0.5;
+}
+
+.project-drag-ghost {
+  position: fixed;
+  z-index: 102;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: var(--radius-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-raised);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.project-drag-ghost .ghost-target {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+}
+
 .tb-pill {
   font-family: var(--font-mono);
   font-size: 11px;
