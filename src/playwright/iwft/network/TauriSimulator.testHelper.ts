@@ -9,7 +9,15 @@ import { emit } from "@tauri-apps/api/event";
 import { confirmDialog, promptDialog, deleteSessionDialog } from "../../../toast";
 import { rankByRelevance } from "../../../markdownRelevance";
 import type { Comment, ReviewSnapshot } from "../../../review/model";
-import type { FsEntry, ProgramInfo, Seed, SessionRow, Snapshot } from "./types.testHelper";
+import type {
+  AppSnapshot,
+  FsEntry,
+  ProgramInfo,
+  Seed,
+  SessionRow,
+  Snapshot,
+} from "./types.testHelper";
+import { WorkspaceBackend } from "./workspaceBackend.testHelper";
 
 type CreateCommentArgs = {
   id: string;
@@ -22,6 +30,9 @@ type CreateCommentArgs = {
 
 class TauriSimulator {
   private snapshot: Snapshot;
+  // Workspace definitions, Main's label and the startup choice; project tags
+  // live on the snapshot's groups, which this re-tags in place.
+  private workspaces: WorkspaceBackend;
   private reviews: Record<string, ReviewSnapshot>;
   private comments: Record<string, Comment[]>; // by session id
   private reviewed: Record<string, Set<string>>; // reviewed file paths, by session id
@@ -66,6 +77,7 @@ class TauriSimulator {
 
   constructor(seed: Seed) {
     this.snapshot = seed.snapshot;
+    this.workspaces = new WorkspaceBackend(seed.workspaces, () => this.snapshot.groups);
     this.reviews = seed.reviews;
     this.config = seed.config ?? {};
     this.keybindings = seed.keybindings ?? {};
@@ -116,10 +128,26 @@ class TauriSimulator {
     return this.snapshot.groups.flatMap((g) => g.sessions);
   }
 
-  /** Projects the fake now holds (name + repo_path) — what an add-project test
-   *  asserts against. */
-  getProjects(): { id: string; name: string; repo_path: string }[] {
-    return this.snapshot.groups.map((g) => ({ id: g.id, name: g.name, repo_path: g.repo_path }));
+  /** Projects the fake now holds (name, repo_path and workspace tag, null =
+   *  Main): what an add-project or move-project test asserts against. */
+  getProjects(): { id: string; name: string; repo_path: string; workspace: string | null }[] {
+    return this.snapshot.groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      repo_path: g.repo_path,
+      workspace: g.workspace ?? null,
+    }));
+  }
+
+  /** The stored workspace config (definitions in order, Main's label or null,
+   *  the startup choice): what a create/rename/reorder/delete test asserts. */
+  getWorkspaceConfig(): { defs: string[]; main: string | null; startup: string } {
+    return this.workspaces.state();
+  }
+
+  /** The merged workspace list the next snapshot carries. */
+  getWorkspaces(): { name: string | null; label: string }[] {
+    return this.workspaces.merged();
   }
 
   /** Current section buckets (null in project view) — what a move-to-section
@@ -183,9 +211,29 @@ class TauriSimulator {
   }
 
   // ----- event push (the backend's role; available for sidebar scenarios) -----
+  /** Replace the backend's projects/sessions and push the result. Workspace
+   *  fields are derived, as on every snapshot. */
   async pushSnapshot(snapshot: Snapshot): Promise<void> {
     this.snapshot = snapshot;
-    await emit("sessions-updated", snapshot);
+    await this.pushState();
+  }
+
+  /** Push the current state as the backend's polling loop would, e.g. after
+   *  a test edits workspaces "from the TUI" via `handle(...)`. */
+  async pushState(): Promise<void> {
+    await emit("sessions-updated", this.wireSnapshot());
+  }
+
+  /** The snapshot as the backend serialises it: every project's tag present
+   *  (null = Main) and the merged workspace list + startup choice derived from
+   *  the workspace config and those tags. A copy, as real IPC delivers one. */
+  private wireSnapshot(): AppSnapshot {
+    return structuredClone({
+      ...this.snapshot,
+      groups: this.snapshot.groups.map((g) => ({ ...g, workspace: g.workspace ?? null })),
+      workspaces: this.workspaces.merged(),
+      startup_workspace: this.workspaces.startup(),
+    });
   }
 
   // ----- PTY byte stream (the backend writing to a terminal's Channel) -----
@@ -210,7 +258,7 @@ class TauriSimulator {
   handle(cmd: string, args: Record<string, unknown>): unknown {
     switch (cmd) {
       case "get_groups":
-        return this.snapshot;
+        return this.wireSnapshot();
       case "get_create_options":
         return { default_program: this.defaultProgram, programs: this.programs, sections: [] };
       case "create_session":
@@ -235,9 +283,33 @@ class TauriSimulator {
       case "complete_path":
         return this.completePath(args.partial as string);
       case "add_project":
-        return this.addProject(args.path as string);
+        return this.addProject(args.path as string, args.workspace as string | null | undefined);
       case "scan_directory":
-        return this.scanDirectory(args.path as string);
+        return this.scanDirectory(args.path as string, args.workspace as string | null | undefined);
+      // ----- workspaces (src-tauri/src/workspaces.rs; rules in workspaceBackend) -----
+      case "set_project_workspace":
+        this.workspaces.setProjectWorkspace(
+          args.projectId as string,
+          (args.workspace as string | null | undefined) ?? null,
+        );
+        return null;
+      case "create_workspace":
+        return this.workspaces.create(args.name as string);
+      case "reorder_workspaces":
+        this.workspaces.reorder(args.names as string[]);
+        return null;
+      case "rename_workspace":
+        return this.workspaces.rename(args.from as string, args.to as string);
+      case "delete_workspace":
+        return this.workspaces.delete(args.name as string);
+      case "set_main_workspace_label":
+        this.workspaces.setMainLabel(args.label as string);
+        return null;
+      case "set_startup_workspace":
+        this.workspaces.setStartup(args.value as string);
+        return null;
+      case "resolve_startup_workspace":
+        return this.workspaces.resolveStartup((args.last as string | null | undefined) ?? null);
       // ----- dialog plugin (native folder picker behind "Browse…") -----
       case "plugin:dialog|open":
         return this.browsePath;
@@ -313,9 +385,11 @@ class TauriSimulator {
       case "get_keybindings":
         return this.keybindings;
       case "get_config":
-        return this.config;
+        // The workspace fields come from the workspace state, as the real
+        // config carries them.
+        return { ...this.config, ...this.workspaces.configFields() };
       case "save_config":
-        this.savedConfig = args.config as Record<string, unknown>;
+        this.saveConfig(args.config as Record<string, unknown>);
         return false; // restartRequired
       case "open_review":
         return this.openReview(args.id as string);
@@ -341,6 +415,21 @@ class TauriSimulator {
     }
   }
 
+  /** save_config, as settings.rs's `config_to_save` does it: the form's copy
+   *  replaces the config, except the workspace fields, which always stay as
+   *  they are now (workspace_themes kept in `config`; the rest live in the
+   *  workspace state, so a stale form's copy of them is simply dropped). The
+   *  form as sent is kept for assertions (getSavedConfig). */
+  private saveConfig(form: Record<string, unknown>): void {
+    this.savedConfig = form;
+    const next = { ...form };
+    for (const key of ["workspaces", "main_workspace", "startup_workspace", "workspace_themes"]) {
+      delete next[key];
+    }
+    if ("workspace_themes" in this.config) next.workspace_themes = this.config.workspace_themes;
+    this.config = next;
+  }
+
   // ----- sidebar mutations (frontend reads them back via refreshNow→get_groups) -----
   // Records the threaded `program` on the new session's row (the backend infers
   // the harness from it). `undefined` mirrors the backend default of "claude".
@@ -364,6 +453,7 @@ class TauriSimulator {
       review_decision: null,
       has_pending_comments: false,
       unread: false,
+      hibernated: false,
       stacked_child: false,
       project_id: group.id,
       project_name: group.name,
@@ -457,17 +547,32 @@ class TauriSimulator {
     return [...results].sort();
   }
 
-  /** Add a project group (no sessions) keyed off the path's basename, mirroring
-   *  the backend add_project; returns the new id like the real command. */
-  private addProject(path: string): string {
+  /** Add a project group (no sessions) keyed off the path's basename, tagged
+   *  with `workspace` (defined on the way), mirroring the backend add_project;
+   *  returns the new id like the real command. */
+  private addProject(path: string, workspace: string | null | undefined): string {
+    const tag = this.workspaces.prepareNewProject(workspace);
     const id = `proj-add-${this.nextProject++}`;
     const name = path.replace(/\/+$/, "").split("/").pop() || path;
-    this.snapshot.groups.push({ id, name, repo_path: path, pull_blocked: null, sessions: [] });
+    this.snapshot.groups.push({
+      id,
+      name,
+      repo_path: path,
+      pull_blocked: null,
+      workspace: tag,
+      sessions: [],
+    });
     return id;
   }
 
-  /** Count seeded dirs nested under `path` as the "added" repos. */
-  private scanDirectory(path: string): { added: number; skipped: number } {
+  /** Count seeded dirs nested under `path` as the "added" repos. The fake adds
+   *  no groups, but still validates and defines the workspace like the real
+   *  scan (a refused name fails the whole call). */
+  private scanDirectory(
+    path: string,
+    workspace: string | null | undefined,
+  ): { added: number; skipped: number } {
+    this.workspaces.prepareNewProject(workspace);
     const prefix = path.endsWith("/") ? path : `${path}/`;
     const added = this.dirs.filter((d) => d.startsWith(prefix)).length;
     return { added, skipped: 0 };

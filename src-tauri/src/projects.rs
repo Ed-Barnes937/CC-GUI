@@ -6,11 +6,14 @@ use serde::Serialize;
 
 use crate::service::{parse_project_id, parse_session_id, service, with_service};
 
+/// Register a git repository as a project, tagged with `workspace` (`None` =
+/// Main) so it lands in the caller's active workspace. An undefined workspace
+/// name is defined on the way.
 #[tauri::command]
-pub async fn add_project(path: String) -> Result<String, String> {
+pub async fn add_project(path: String, workspace: Option<String>) -> Result<String, String> {
     let path = expand_tilde(&path);
     with_service(move |svc| async move {
-        svc.add_project(PathBuf::from(path), None)
+        svc.add_project(PathBuf::from(path), workspace)
             .await
             .map(|id| id.to_string())
             .map_err(|e| e.to_string())
@@ -37,15 +40,20 @@ pub struct ScanOutcome {
     skipped: usize,
 }
 
-/// Scan a directory tree for git repos and add them all as projects.
+/// Scan a directory tree for git repos and add them all as projects, each
+/// tagged with `workspace` like [`add_project`]. Repos that are already
+/// projects keep their workspace.
 #[tauri::command]
-pub async fn scan_directory(path: String) -> Result<ScanOutcome, String> {
+pub async fn scan_directory(
+    path: String,
+    workspace: Option<String>,
+) -> Result<ScanOutcome, String> {
     let dir = PathBuf::from(expand_tilde(&path));
     if !dir.is_dir() {
         return Err(format!("not a directory: {}", dir.display()));
     }
     with_service(move |svc| async move {
-        svc.scan_directory(&dir, None)
+        svc.scan_directory(&dir, workspace)
             .await
             .map(|r| ScanOutcome {
                 added: r.added,

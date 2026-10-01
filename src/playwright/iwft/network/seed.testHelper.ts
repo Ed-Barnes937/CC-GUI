@@ -4,7 +4,7 @@
 // of the async re-tokenize render.
 
 import type { ReviewSnapshot } from "../../../review/model";
-import type { Seed, SessionRow, Snapshot } from "./types.testHelper";
+import type { ProjectGroup, Seed, SessionRow, Snapshot } from "./types.testHelper";
 
 export const SESSION_ID = "sess-1";
 
@@ -95,4 +95,48 @@ export function defaultSeed(): Seed {
     keybindings: {},
     config: {},
   };
+}
+
+/** A project with one session per title. Session ids, branches and tmux names
+ *  derive from the project id and title; `workspace` tags the project (absent
+ *  = Main). */
+export function makeProject(
+  id: string,
+  name: string,
+  titles: string[],
+  over: Partial<ProjectGroup> = {},
+): ProjectGroup {
+  return {
+    id,
+    name,
+    repo_path: `/repos/${name}`,
+    pull_blocked: null,
+    sessions: titles.map((title, i) =>
+      makeSession({
+        id: `${id}-s${i + 1}`,
+        title,
+        branch: title.replace(/\s+/g, "-"),
+        tmux_session_name: `cc-${id}-s${i + 1}`,
+        project_id: id,
+        project_name: name,
+      }),
+    ),
+    ...over,
+  };
+}
+
+/** Three workspaces, as in the design handoff: Main keeps the default "acme"
+ *  project (and its review), "Work" holds two projects and "OSS" one. Both are
+ *  defined, in that order; the startup choice is the default "last". */
+export function workspacesSeed(): Seed {
+  const seed = defaultSeed();
+  seed.snapshot.groups.push(
+    makeProject("proj-atlas", "atlas-api", ["rate limiter", "auth token refresh"], {
+      workspace: "Work",
+    }),
+    makeProject("proj-web", "web-app", ["billing page"], { workspace: "Work" }),
+    makeProject("proj-dot", "dotfiles", ["nvim lsp config"], { workspace: "OSS" }),
+  );
+  seed.workspaces = { defs: ["Work", "OSS"] };
+  return seed;
 }

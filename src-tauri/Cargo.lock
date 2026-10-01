@@ -519,6 +519,8 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "claude-commander-core",
+ "claude-commander-protocol",
+ "claude-commander-viewmodel",
  "futures",
  "portable-pty",
  "serde",

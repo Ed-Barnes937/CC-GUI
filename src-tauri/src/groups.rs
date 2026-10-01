@@ -53,6 +53,8 @@ pub struct ProjectGroup {
     pub repo_path: String,
     /// Why the main-branch auto-pull is blocked (e.g. "local commits"), if it is.
     pub pull_blocked: Option<String>,
+    /// The workspace this project is tagged with; `None` is the built-in Main.
+    pub workspace: Option<String>,
     pub sessions: Vec<SessionRow>,
 }
 
@@ -66,6 +68,16 @@ fn project_uuid(id: &claude_commander_core::session::ProjectId) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
+/// Projects in snapshot display order (by name). The one ordering both the
+/// snapshot's groups and the merged workspace list's tag-only tail follow.
+pub fn projects_in_display_order(
+    state: &claude_commander_core::AppState,
+) -> Vec<&claude_commander_core::session::Project> {
+    let mut projects: Vec<_> = state.projects.values().collect();
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    projects
+}
+
 /// Snapshot projects + sessions from the shared state store. Agent states are
 /// filled by the caller (the polling loop has the detector; the initial
 /// `get_groups` call reports "unknown" and lets the next tick correct it).
@@ -75,7 +87,10 @@ pub async fn build_groups(
 ) -> Vec<ProjectGroup> {
     let (projects, sessions) = {
         let state = svc.store().read().await;
-        let projects: Vec<_> = state.projects.values().cloned().collect();
+        let projects: Vec<_> = projects_in_display_order(&state)
+            .into_iter()
+            .cloned()
+            .collect();
         let sessions: Vec<_> = state.sessions.values().cloned().collect();
         (projects, sessions)
     };
@@ -83,9 +98,6 @@ pub async fn build_groups(
         .sessions_with_pending_comments()
         .await
         .unwrap_or_default();
-
-    let mut projects = projects;
-    projects.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut groups: Vec<ProjectGroup> = Vec::with_capacity(projects.len());
     for p in projects {
@@ -136,6 +148,7 @@ pub async fn build_groups(
                 .unwrap()
                 .get(&p.id.to_string())
                 .cloned(),
+            workspace: p.workspace.clone(),
             sessions: rows,
         });
     }
@@ -206,6 +219,11 @@ pub struct Snapshot {
     /// Names available for "move to section" (configured sections only).
     pub section_names: Vec<String>,
     pub commander: crate::commander::CommanderStatus,
+    /// Every workspace, merged as the TUI merges them: Main first, then the
+    /// configured definitions in order, then tags no definition names.
+    pub workspaces: Vec<crate::workspaces::WorkspaceEntry>,
+    /// The shared startup choice: `"last"`, `"main"` or a workspace name.
+    pub startup_workspace: String,
 }
 
 pub async fn build_snapshot(
@@ -213,7 +231,15 @@ pub async fn build_snapshot(
     detect: Option<&mut AgentStateDetector>,
 ) -> Snapshot {
     let groups = build_groups(svc, detect).await;
-    let config_sections = svc.read_config().sections;
+    let config = svc.read_config();
+    let workspaces = crate::workspaces::merged_workspaces(
+        &config,
+        groups.iter().filter_map(|g| g.workspace.as_deref()),
+    )
+    .into_iter()
+    .map(Into::into)
+    .collect();
+    let config_sections = &config.sections;
     // Section buckets are the same for either section view (flat vs stacks) —
     // the frontend chooses the layout — so compute them whenever sections are
     // configured and let the frontend ignore them in project view.
@@ -223,7 +249,7 @@ pub async fn build_snapshot(
         let state = svc.store().read().await;
         let sessions: Vec<_> = state.sessions.values().cloned().collect();
         Some(
-            claude_commander_core::session::build_sections(&sessions, &config_sections)
+            claude_commander_core::session::build_sections(&sessions, config_sections)
                 .into_iter()
                 .map(|s| SectionBucket {
                     name: s.name,
@@ -241,6 +267,8 @@ pub async fn build_snapshot(
         sections,
         section_names: config_sections.iter().map(|s| s.name.clone()).collect(),
         commander: crate::commander::commander_status().await,
+        workspaces,
+        startup_workspace: config.startup_workspace.clone().into(),
     }
 }
 
