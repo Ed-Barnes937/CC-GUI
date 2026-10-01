@@ -33,10 +33,17 @@ export type ProjectGroup = {
   name: string;
   repo_path: string;
   pull_blocked: string | null;
+  /** The workspace this project is tagged with; null is the built-in Main. */
+  workspace: string | null;
   sessions: SessionRow[];
 };
 
 export type SectionBucket = { name: string; session_ids: string[] };
+
+/** One workspace in the merged list. `name` is the identity (null = Main, else
+ *  the tag projects carry, i.e. `ProjectGroup.workspace`); `label` is what to
+ *  show (Main's is renameable). */
+export type WorkspaceEntry = { name: string | null; label: string };
 
 /** One push from the backend's polling loop — the whole visible world. */
 export type Snapshot = {
@@ -44,6 +51,11 @@ export type Snapshot = {
   sections: SectionBucket[] | null;
   section_names: string[];
   commander: { enabled: boolean; running: boolean };
+  /** Every workspace, Main first, in display order: the configured
+   *  definitions, then any tag a project carries that no definition names. */
+  workspaces: WorkspaceEntry[];
+  /** The shared startup choice: "last", "main" or a workspace name. */
+  startup_workspace: string;
 };
 
 /** The richer per-session record fetched on demand for the detail panel. */

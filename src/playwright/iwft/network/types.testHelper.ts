@@ -1,31 +1,16 @@
-// Shared shapes for the iwft backend fake. The Snapshot family mirrors main.ts
-// (which doesn't export its types); the review family is reused from the app's
-// own review model so the fake can't drift from what the UI parses.
+// Shared shapes for the iwft backend fake. The Snapshot family and the review
+// family are reused from the app's own types so the fake can't drift from what
+// the UI parses.
 
 import type { ReviewSnapshot } from "../../../review/model";
+import type {
+  ProjectGroup as AppProjectGroup,
+  SessionRow,
+  Snapshot as AppSnapshot,
+} from "../../../app/types";
+import type { WorkspaceConfig } from "./workspaceBackend.testHelper";
 
-export type SessionRow = {
-  id: string;
-  title: string;
-  branch: string;
-  status: string;
-  program: string;
-  agent_state: string;
-  tmux_session_name: string;
-  pr_number: number | null;
-  pr_url: string | null;
-  pr_state: "open" | "closed" | "merged" | null;
-  pr_draft: boolean;
-  pr_labels: string[];
-  review_decision: string | null;
-  has_pending_comments: boolean;
-  unread: boolean;
-  hibernated: boolean;
-  stacked_child: boolean;
-  project_id: string;
-  project_name: string;
-  current_section: string | null;
-};
+export type { SessionRow };
 
 /** One entry in a listed directory, mirroring the backend's FsEntry. */
 export type FsEntry = { name: string; is_dir: boolean; size: number };
@@ -33,20 +18,17 @@ export type FsEntry = { name: string; is_dir: boolean; size: number };
 /** A launch program option, mirroring the backend's ProgramInfo. */
 export type ProgramInfo = { label: string; command: string };
 
-export type ProjectGroup = {
-  id: string;
-  name: string;
-  repo_path: string;
-  pull_blocked: string | null;
-  sessions: SessionRow[];
+/** A seeded project. `workspace` tags it; absent or null = the built-in Main. */
+export type ProjectGroup = Omit<AppProjectGroup, "workspace"> & { workspace?: string | null };
+
+/** The backend's state as a seed (or a pushSnapshot) describes it: the app's
+ *  Snapshot minus the workspace fields, which the fake derives from
+ *  `Seed.workspaces` and the projects' tags exactly as the backend does. */
+export type Snapshot = Omit<AppSnapshot, "groups" | "workspaces" | "startup_workspace"> & {
+  groups: ProjectGroup[];
 };
 
-export type Snapshot = {
-  groups: ProjectGroup[];
-  sections: { name: string; session_ids: string[] }[] | null;
-  section_names: string[];
-  commander: { enabled: boolean; running: boolean };
-};
+export type { AppSnapshot, WorkspaceConfig };
 
 /** Everything the fake needs to answer a test's backend traffic. Plain data —
  *  it crosses into the page via addInitScript serialization. */
@@ -57,6 +39,10 @@ export type Seed = {
   viewMode?: string;
   /** Keyed by session id → the review for that session (answers open_review). */
   reviews: Record<string, ReviewSnapshot>;
+  /** The shared-config workspace fields (definitions, Main's label, the
+   *  startup choice). Projects join a workspace via `ProjectGroup.workspace`;
+   *  a tag with no definition still shows up, as upstream's merge does. */
+  workspaces?: WorkspaceConfig;
   keybindings?: Record<string, string[]>;
   config?: Record<string, unknown>;
   /** Raw custom themes answered to list_custom_themes (validated by theme.ts). */
