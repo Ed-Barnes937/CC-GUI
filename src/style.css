@@ -199,6 +199,44 @@ body {
   color: var(--text);
 }
 
+/* The workspace switcher, between the app name and the session count. Hidden
+   until a second workspace exists, so the chrome is unchanged without one. */
+.tb-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tb-workspace:hover,
+.tb-workspace.open {
+  border-color: var(--border-strong);
+  background: var(--border);
+}
+
+.tb-workspace:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tb-workspace .tb-workspace-caret {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.tb-workspace.hidden {
+  display: none;
+}
+
 .tb-pill {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2727,6 +2765,13 @@ body.resizing .panel-resizer {
   margin-bottom: 14px;
 }
 
+/* A prompt's validation message, between the field and the buttons. */
+.confirm-error {
+  margin: -8px 0 14px;
+  font-size: 11px;
+  color: var(--danger);
+}
+
 /* Delete-session dialog: icon badge + titles side by side, then the
    consequences as a checklist (one line per effect, not prose). */
 .delete-head {
@@ -3033,6 +3078,42 @@ body.resizing .panel-resizer {
   color: var(--warning);
 }
 
+/* A non-interactive heading row (the workspace menu's WORKSPACES). */
+.menu-header {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+/* Rows of a menu that ticks one entry: a 12px tick column, then the label and
+   its dim meta text, tighter than the plain rows' 24px gap. */
+.menu-item.checkable {
+  gap: 8px;
+}
+
+.menu-tick {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.menu-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* A plain row in a ticking menu, its label aligned with the ticked names. */
+.menu-item.indent {
+  padding-left: 28px;
+}
+
+.context-menu.workspace-menu {
+  min-width: 250px;
+}
+
 .menu-separator {
   height: 1px;
   background: var(--border);
@@ -3109,6 +3190,11 @@ body.resizing .panel-resizer {
 
 .tab.dragging {
   opacity: 0.5;
+}
+
+/* Another workspace's terminal: still attached, just not in this strip. */
+.tab.out-of-scope {
+  display: none;
 }
 
 /* Insertion marker showing where a dragged tab will land. */

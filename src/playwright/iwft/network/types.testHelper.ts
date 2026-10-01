@@ -37,6 +37,9 @@ export type Seed = {
   /** GUI-owned session-list grouping, seeded into localStorage (`cc-view-mode`)
    *  before boot. Absent → the frontend's default ("project"). */
   viewMode?: string;
+  /** The GUI's last-used workspace (null = Main), seeded into localStorage
+   *  (`cc-active-workspace`) before boot. Absent → never set. */
+  activeWorkspace?: string | null;
   /** Keyed by session id → the review for that session (answers open_review). */
   reviews: Record<string, ReviewSnapshot>;
   /** The shared-config workspace fields (definitions, Main's label, the

@@ -18,8 +18,9 @@ import { makeResizable } from "./resize";
 import { overlayOpen as keyOverlayOpen } from "./keys";
 import { followSystem, initTheme } from "./theme";
 import { detailEl, sessionsEl } from "./app/elements";
-import { applySnapshot, hasSnapshot } from "./app/store";
+import { applySnapshot } from "./app/store";
 import type { Snapshot } from "./app/types";
+import { activeWorkspace, setActiveWorkspace } from "./app/workspaces";
 import { activeTerm, refitActive, terminals } from "./terminal/state";
 import { closeDetail, detailOpenFor } from "./session/detail";
 import { selectRow, selectedSession } from "./session/selection";
@@ -29,6 +30,7 @@ import { selectRow, selectedSession } from "./session/selection";
 import "./terminal/restart";
 import "./sidebar/index";
 import "./board/index";
+import "./chrome/workspaces";
 import "./chrome/titlebar";
 import "./chrome/commander";
 import "./chrome/onboarding";
@@ -92,14 +94,31 @@ document.addEventListener("keydown", (e) => {
 });
 
 // The backend pushes a snapshot every couple of seconds; this fetch covers the
-// gap before the first push.
-void listen<Snapshot>("sessions-updated", (event) => applySnapshot(event.payload));
+// gap before the first push. Nothing draws until the startup workspace is
+// known, so a launch into a pinned workspace never flashes the last-used one:
+// a push that beats the boot fetch is held (and, being newer, preferred).
+let booted = false;
+let earlyPush: Snapshot | null = null;
+void listen<Snapshot>("sessions-updated", (event) => {
+  if (booted) applySnapshot(event.payload);
+  else earlyPush = event.payload;
+});
 
-invoke<Snapshot>("get_groups")
-  .then((snap) => {
-    // The push loop may have rendered already; don't regress its richer data.
-    if (!hasSnapshot()) applySnapshot(snap);
+// The startup choice is upstream's resolution over the shared config, given
+// this client's last-used workspace; on failure, last-used it is (the
+// snapshot's reconcile still drops it if it has gone).
+const startup = invoke<string | null>("resolve_startup_workspace", { last: activeWorkspace() }).catch(
+  () => activeWorkspace(),
+);
+
+Promise.all([invoke<Snapshot>("get_groups"), startup])
+  .then(([snap, workspace]) => {
+    setActiveWorkspace(workspace, "startup");
+    booted = true;
+    applySnapshot(earlyPush ?? snap);
   })
   .catch((e) => {
-    sessionsEl.innerHTML = `<div class="error">Error: ${e}</div>`;
+    booted = true;
+    if (earlyPush) applySnapshot(earlyPush);
+    else sessionsEl.innerHTML = `<div class="error">Error: ${e}</div>`;
   });

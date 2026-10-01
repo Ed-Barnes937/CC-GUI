@@ -178,11 +178,16 @@ export function deleteSessionDialog(name: string, branch: string): Promise<boole
 /**
  * In-app replacement for window.prompt. Resolves the trimmed input on Save/Enter,
  * or null on Cancel/Esc/backdrop click or empty input.
+ *
+ * With `validate`, a submit first runs it on the raw input: a returned message
+ * is shown under the field and the dialog stays open (an empty input is then
+ * the validator's to judge too); null lets the submit through.
  */
 export function promptDialog(
   message: string,
   placeholder = "",
   confirmLabel = "Save",
+  validate?: (value: string) => string | null,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
@@ -195,6 +200,10 @@ export function promptDialog(
     const input = noTextAssist(document.createElement("input"));
     input.className = "rename-input";
     input.placeholder = placeholder;
+    const error = document.createElement("div");
+    error.className = "confirm-error";
+    error.setAttribute("role", "alert");
+    error.hidden = true;
     const buttons = document.createElement("div");
     buttons.className = "confirm-buttons";
     const cancel = document.createElement("button");
@@ -202,14 +211,27 @@ export function promptDialog(
     const ok = document.createElement("button");
     ok.textContent = confirmLabel;
     buttons.append(cancel, ok);
-    box.append(text, input, buttons);
+    box.append(text, input, error, buttons);
     overlay.appendChild(box);
 
     const done = (result: string | null) => {
       overlay.remove();
       resolve(result);
     };
-    const submit = () => done(input.value.trim() || null);
+    const submit = () => {
+      const problem = validate?.(input.value) ?? null;
+      if (problem) {
+        error.textContent = problem;
+        error.hidden = false;
+        input.focus();
+        return;
+      }
+      done(input.value.trim() || null);
+    };
+    // A stale complaint goes as soon as the user edits.
+    input.addEventListener("input", () => {
+      error.hidden = true;
+    });
     cancel.addEventListener("click", () => done(null));
     ok.addEventListener("click", submit);
     overlay.addEventListener("click", (e) => {

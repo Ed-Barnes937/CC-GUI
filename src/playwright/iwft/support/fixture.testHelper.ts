@@ -17,6 +17,7 @@ import { BoardPageObject } from "../../pageObjects/BoardPageObject.testHelper";
 import { FileExplorerPageObject } from "../../pageObjects/FileExplorerPageObject.testHelper";
 import { OnboardingPageObject } from "../../pageObjects/OnboardingPageObject.testHelper";
 import { DetailPanePageObject } from "../../pageObjects/DetailPanePageObject.testHelper";
+import { WorkspacesPageObject } from "../../pageObjects/WorkspacesPageObject.testHelper";
 
 interface Fixtures {
   /** Override in a test via `test.use({ seed: customSeed })` for bespoke state. */
@@ -46,6 +47,8 @@ interface Fixtures {
   /** App booted against `seed`, detail pane object ready (pane starts closed;
    *  call open(title)). */
   detail: DetailPanePageObject;
+  /** App booted against `seed`, workspace chip object ready (menu closed). */
+  workspaces: WorkspacesPageObject;
 }
 
 export const test = base.extend<Fixtures>({
@@ -100,6 +103,10 @@ export const test = base.extend<Fixtures>({
   detail: async ({ page, seed }, use) => {
     await launchApp(page, seed);
     await use(new DetailPanePageObject(page));
+  },
+  workspaces: async ({ page, seed }, use) => {
+    await launchApp(page, seed);
+    await use(new WorkspacesPageObject(page));
   },
 });
 

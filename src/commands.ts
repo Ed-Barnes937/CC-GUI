@@ -29,7 +29,7 @@ import { STATUS_TIERS, stateChipInfo } from "./status";
 import { setMode } from "./theme";
 import { openThemeModal } from "./theme/modal";
 import { featureActions, featurePalette, onFeatureChange } from "./features";
-import { findSession, groupOf, groups, sectionView, sections, statusGrouping } from "./app/store";
+import { findSession, findSessionByTmux, groupOf, groups, sectionView, sections, statusGrouping } from "./app/store";
 import { invokeToast, lifecycle } from "./app/actions";
 import { requestRender } from "./app/render";
 import { commanderChip } from "./app/elements";
@@ -57,6 +57,13 @@ import {
 } from "./sidebar/state";
 import { deleteMergedSessions } from "./sidebar/menus";
 import { exportThemeTemplate, loadCustomThemes } from "./theme/custom";
+import {
+  cycleWorkspaces,
+  newWorkspace,
+  openWorkspaceMenu,
+  switchToWorkspaceAt,
+  workspacePaletteEntries,
+} from "./chrome/workspaces";
 
 export function cycleSession(delta: number): void {
   // Seed the cursor from the active terminal so the first press moves relative
@@ -74,8 +81,9 @@ export function cycleSession(delta: number): void {
 // iTerm-style tab / session navigation. These are app actions (they never reach
 // the shell), so — like Cmd+W — they're handled here rather than as terminal
 // bytes. Capture phase to beat xterm's key handling on the focused terminal.
-// Cmd+1..9 selects a tab; Cmd+Opt+Left/Right cycles tabs; Cmd+Opt+Up/Down walks
-// the sidebar sessions. Bare Cmd+Left/Right stays the terminal's line-start/end.
+// Cmd+1..9 selects a tab; Cmd+Shift+1..9 a workspace (by display order);
+// Cmd+Opt+Left/Right cycles tabs; Cmd+Opt+Up/Down walks the sidebar sessions.
+// Bare Cmd+Left/Right stays the terminal's line-start/end.
 window.addEventListener(
   "keydown",
   (e) => {
@@ -84,6 +92,15 @@ window.addEventListener(
       e.preventDefault();
       e.stopPropagation();
       activateTabByIndex(Number(e.key) - 1);
+      return;
+    }
+    // Shift turns the digit's key into its symbol ("!" for 1 on US layouts),
+    // so match the physical key.
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (!e.altKey && e.shiftKey && digit) {
+      e.preventDefault();
+      e.stopPropagation();
+      switchToWorkspaceAt(Number(digit[1]) - 1);
       return;
     }
     if (!e.altKey || e.shiftKey) return;
@@ -105,9 +122,7 @@ window.addEventListener(
 /** Open the file explorer rooted at the active session's repo. */
 function openFileExplorer(): void {
   const name = activeTerm();
-  const s = name
-    ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
-    : undefined;
+  const s = name ? findSessionByTmux(name) : undefined;
   if (!name || !s) {
     toast("No active session", "error");
     return;
@@ -124,9 +139,7 @@ function openFileExplorer(): void {
 // capture-phase accel pattern as Cmd+E below.
 function openMarkdownViewerForActiveSession(): void {
   const name = activeTerm();
-  const s = name
-    ? groups().flatMap((g) => g.sessions).find((x) => x.tmux_session_name === name)
-    : undefined;
+  const s = name ? findSessionByTmux(name) : undefined;
   if (!name || !s) {
     toast("No active session", "error");
     return;
@@ -272,6 +285,8 @@ registerPaletteProvider(() => [
     action: () => void invoke("open_themes_dir").catch((e) => toast(`${e}`, "error")),
   },
 ]);
+
+registerPaletteProvider(workspacePaletteEntries);
 
 // Commands contributed by enabled optional features (Settings → Features). Read
 // on each palette open, so a toggle takes effect without a restart.
@@ -485,6 +500,12 @@ const KEY_ACTIONS: Record<string, { label: string; run: () => void }> = {
     },
   },
   toggle_view_mode: { label: "Cycle view mode", run: cycleViewMode },
+  // Upstream's workspace action names, so a binding configured for the TUI
+  // (its defaults: w cycles, W opens the picker) carries over.
+  next_workspace: { label: "Next workspace", run: () => cycleWorkspaces(true) },
+  previous_workspace: { label: "Previous workspace", run: () => cycleWorkspaces(false) },
+  workspace_picker: { label: "Switch workspace…", run: openWorkspaceMenu },
+  new_workspace: { label: "New workspace…", run: () => void newWorkspace() },
   shrink_left_pane: { label: "Shrink sidebar", run: () => adjustPanelWidth("cc-sidebar-width", -24) },
   grow_left_pane: { label: "Grow sidebar", run: () => adjustPanelWidth("cc-sidebar-width", 24) },
   // toggle_pane (bare Tab in the TUI) is intentionally not mapped: the GUI has
