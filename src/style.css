@@ -2736,6 +2736,19 @@ body {
   flex-shrink: 0;
 }
 
+.ws-theme {
+  flex-shrink: 0;
+  width: 150px;
+  background-color: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 7px;
+  outline: none;
+}
+
 .ws-rename-input {
   width: 150px;
   background: var(--bg-inset);
@@ -2829,6 +2842,7 @@ body {
 #settings-overlay .settings-field > textarea:focus-visible,
 #settings-overlay .section-card input:focus-visible,
 #settings-overlay .section-card select:focus-visible,
+#settings-overlay .ws-theme:focus-visible,
 #settings-overlay .ws-handle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -3163,6 +3177,34 @@ body.resizing .panel-resizer {
   flex-shrink: 0;
   color: var(--text-dim);
   border: 1px solid var(--border-strong);
+}
+
+/* "OSS uses Tokyo Night · Manage": the active workspace's own theme covers the
+   global one this popover edits. */
+.theme-modal-note {
+  flex-shrink: 0;
+  padding: 4px 8px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.theme-modal-manage {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.theme-modal-manage:hover {
+  text-decoration: underline;
+}
+
+.theme-modal-manage:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* Muted footer naming the live-preview contract (browse repaints, commit saves). */

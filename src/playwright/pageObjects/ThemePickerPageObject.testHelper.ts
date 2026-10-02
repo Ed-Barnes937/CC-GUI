@@ -27,6 +27,26 @@ export class ThemePickerPageObject extends AppPageObject {
     });
   }
 
+  /** Open the picker from the title bar's ◐ button. */
+  openFromTitlebar(): Promise<void> {
+    return this.step("openFromTitlebar", async () => {
+      await this.page.locator("#tb-theme").click();
+      await expect(this.modal).toBeVisible();
+    });
+  }
+
+  /** "OSS uses Tokyo Night · Manage", shown while a workspace override is on. */
+  overrideNote(): Locator {
+    return this.modal.locator(".theme-modal-note");
+  }
+
+  manage(): Promise<void> {
+    return this.step("manage", async () => {
+      await this.overrideNote().locator(".theme-modal-manage").click();
+      await expect(this.modal).toBeHidden();
+    });
+  }
+
   down(): Promise<void> {
     return this.step("down", () => this.page.keyboard.press("ArrowDown"));
   }

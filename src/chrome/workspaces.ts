@@ -13,6 +13,7 @@ import { dismissMenu, menuOpen, showMenuBelow, type MenuItem } from "../menu";
 import { kb } from "../keys";
 import type { PaletteEntry } from "../palette";
 import { openSettings } from "../settings";
+import { setManageWorkspaceThemes } from "../theme/modal";
 import { refreshNow } from "../app/actions";
 import { registerView, renderAll } from "../app/render";
 import { tbCount, tbWorkspace, tbWorkspaceLabel } from "../app/elements";
@@ -120,6 +121,9 @@ export async function newWorkspace(): Promise<void> {
 function manageWorkspaces(): void {
   void openSettings("workspaces");
 }
+
+// The theme picker's "OSS uses Tokyo Night · Manage" lands there too.
+setManageWorkspaceThemes(manageWorkspaces);
 
 // --------------------------------------------------------------- the menu
 

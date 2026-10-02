@@ -8,8 +8,26 @@ import {
   chooseTheme,
   registerCustomThemes,
   allThemes,
+  applyTheme,
+  currentTheme,
+  resolveGlobalTheme,
+  setMode,
+  setWorkspaceTheme,
+  workspaceOverride,
+  workspaceThemeId,
+  wireWorkspaceThemes,
+  resetWorkspaceThemesForTest,
+  KEY_OVERRIDE_VARS,
   type Theme,
 } from "./index";
+import {
+  reconcileActiveWorkspace,
+  resetWorkspacesForTest,
+  setActiveWorkspace,
+  workspaceDeleted,
+  workspaceRenamed,
+} from "../app/workspaces";
+import type { WorkspaceEntry } from "../app/types";
 
 const MOCHA = THEMES["catppuccin-mocha"];
 const NORD = THEMES["nord"];
@@ -177,5 +195,150 @@ describe("preferences (localStorage + OS appearance)", () => {
 
     chooseTheme(custom);
     expect(resolveTheme().id).toBe("my-dark");
+  });
+});
+
+describe("per-workspace overrides", () => {
+  const TOKYO = THEMES["tokyo-night"];
+  const LATTE = THEMES["catppuccin-latte"];
+  const list = (...names: string[]): WorkspaceEntry[] => [
+    { name: null, label: "Main" },
+    ...names.map((name) => ({ name, label: name })),
+  ];
+  const stored = () => JSON.parse(localStorage.getItem("cc-workspace-themes") ?? "{}");
+  const bootOverride = () => JSON.parse(localStorage.getItem(KEY_OVERRIDE_VARS) ?? "null");
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    registerCustomThemes([]);
+    resetWorkspacesForTest();
+    resetWorkspaceThemesForTest();
+    wireWorkspaceThemes();
+    setMode("dark"); // global = Mocha
+  });
+
+  it("inherits the global theme when a workspace has no override", () => {
+    setActiveWorkspace("OSS");
+    expect(workspaceThemeId("OSS")).toBeNull();
+    expect(workspaceOverride()).toBeNull();
+    expect(resolveTheme().id).toBe("catppuccin-mocha");
+  });
+
+  it("resolves the active workspace's override, whatever the mode", () => {
+    setWorkspaceTheme("OSS", "catppuccin-latte");
+    expect(resolveTheme().id).toBe("catppuccin-mocha"); // Main is active
+    setActiveWorkspace("OSS");
+    expect(resolveTheme().id).toBe("catppuccin-latte");
+    setMode("light");
+    expect(resolveTheme().id).toBe("catppuccin-latte");
+    setMode("system");
+    expect(resolveTheme().id).toBe("catppuccin-latte");
+    // The global theme is still the mode's, for the picker to edit.
+    expect(resolveGlobalTheme().id).toBe("catppuccin-latte"); // OS says light
+    setMode("dark");
+    expect(resolveGlobalTheme().id).toBe("catppuccin-mocha");
+  });
+
+  it("Main has its own entry, under the reserved key", () => {
+    setWorkspaceTheme(null, "nord");
+    expect(stored()).toEqual({ "\u0000main": "nord" });
+    expect(resolveTheme().id).toBe("nord");
+  });
+
+  it("applies on switch and reverts on switching back", () => {
+    setWorkspaceTheme("OSS", "tokyo-night");
+    expect(currentTheme().id).toBe("catppuccin-mocha");
+    setActiveWorkspace("OSS");
+    expect(currentTheme().id).toBe("tokyo-night");
+    expect(document.documentElement.style.getPropertyValue("--accent")).toBe(TOKYO.cssVars.accent);
+    setActiveWorkspace(null);
+    expect(currentTheme().id).toBe("catppuccin-mocha");
+  });
+
+  it("setting the active workspace's theme applies it at once; Global theme reverts", () => {
+    setActiveWorkspace("OSS");
+    setWorkspaceTheme("OSS", "tokyo-night");
+    expect(currentTheme().id).toBe("tokyo-night");
+    setWorkspaceTheme("OSS", null);
+    expect(currentTheme().id).toBe("catppuccin-mocha");
+    expect(stored()).toEqual({});
+  });
+
+  it("a theme that isn't registered falls back to the global theme, and comes back with its file", () => {
+    const mine = ok({ id: "my-theme", label: "Mine", appearance: "light" });
+    registerCustomThemes([mine]);
+    setWorkspaceTheme("OSS", "my-theme");
+    setActiveWorkspace("OSS");
+    expect(resolveTheme().id).toBe("my-theme");
+
+    registerCustomThemes([]); // the file was removed
+    expect(resolveTheme().id).toBe("catppuccin-mocha");
+    expect(workspaceThemeId("OSS")).toBe("my-theme"); // kept, not dropped
+
+    registerCustomThemes([mine]);
+    expect(resolveTheme().id).toBe("my-theme");
+  });
+
+  it("follows renames and deletes made here", () => {
+    setWorkspaceTheme("OSS", "tokyo-night");
+    workspaceRenamed("OSS", "Open source", false);
+    expect(stored()).toEqual({ "Open source": "tokyo-night" });
+    workspaceDeleted("Open source");
+    expect(stored()).toEqual({});
+  });
+
+  it("renaming the active workspace keeps its theme on screen", () => {
+    setWorkspaceTheme("OSS", "tokyo-night");
+    setActiveWorkspace("OSS");
+    workspaceRenamed("OSS", "Open source", true);
+    expect(currentTheme().id).toBe("tokyo-night");
+    expect(workspaceThemeId("Open source")).toBe("tokyo-night");
+  });
+
+  it("drops entries for workspaces renamed or deleted elsewhere, and reverts when the active one vanishes", () => {
+    setWorkspaceTheme("OSS", "tokyo-night");
+    setWorkspaceTheme("Work", "nord");
+    setWorkspaceTheme(null, "dracula");
+    setActiveWorkspace("OSS");
+    reconcileActiveWorkspace(list("Work"));
+    expect(stored()).toEqual({ Work: "nord", "\u0000main": "dracula" });
+    expect(currentTheme().id).toBe("dracula"); // fell back to Main
+  });
+
+  it("caches the override for the boot script only while it's on screen", () => {
+    setWorkspaceTheme("OSS", "catppuccin-latte");
+    setActiveWorkspace("OSS");
+    expect(bootOverride()).toEqual({ appearance: "light", cssVars: LATTE.cssVars });
+    // The global theme's slot still holds the global theme, not the override.
+    expect(JSON.parse(localStorage.getItem("cc-theme-vars-dark")!)).toEqual(MOCHA.cssVars);
+    expect(localStorage.getItem("cc-theme-vars-light")).toBeNull();
+
+    setActiveWorkspace(null);
+    expect(bootOverride()).toBeNull();
+  });
+
+  it("clears the boot override even when the global theme is the same palette", () => {
+    setWorkspaceTheme("OSS", "catppuccin-mocha");
+    setActiveWorkspace("OSS");
+    applyTheme(resolveTheme());
+    expect(bootOverride()).not.toBeNull();
+    setActiveWorkspace(null); // same theme on screen: nothing redraws, but the cache follows
+    expect(bootOverride()).toBeNull();
+  });
+
+  it("choosing a global theme under an override keeps the override on screen", () => {
+    setWorkspaceTheme("OSS", "tokyo-night");
+    setActiveWorkspace("OSS");
+    chooseTheme(NORD);
+    expect(currentTheme().id).toBe("tokyo-night");
+    expect(JSON.parse(localStorage.getItem("cc-theme-vars-dark")!)).toEqual(NORD.cssVars);
+    setActiveWorkspace(null);
+    expect(currentTheme().id).toBe("nord");
   });
 });

@@ -1,5 +1,5 @@
-// The Workspaces tab: the list (reorder, rename, delete), adding one, the
-// startup choice and Main's label.
+// The Workspaces tab: the list (reorder, theme, rename, delete), adding one,
+// the startup choice and Main's label.
 //
 // Unlike the config tabs, nothing here goes through the pane's working copy
 // and Save: every control applies at once through its own backend command, as
@@ -14,6 +14,7 @@ import { noTextAssist } from "../dom";
 import { draggable } from "../drag";
 import { refreshNow } from "../app/actions";
 import { registerView } from "../app/render";
+import { allThemes, setWorkspaceTheme, workspaceThemeId } from "../theme";
 import { allGroups, startupWorkspace, workspaces } from "../app/store";
 import type { WorkspaceEntry } from "../app/types";
 import {
@@ -65,6 +66,10 @@ function signature(): string {
     workspaces(),
     startupWorkspace(),
     workspaces().map((w) => groups.filter((g) => inWorkspace(g, w.name)).map((g) => g.name)),
+    // The theme selects: what each is set to (renames move it), and the
+    // choices (custom themes reload).
+    workspaces().map((w) => workspaceThemeId(w.name)),
+    allThemes().map((t) => t.id),
   ]);
 }
 
@@ -309,8 +314,7 @@ function workspaceRow(w: WorkspaceEntry, index: number, box: HTMLElement): HTMLE
   count.textContent = countLabel(projectsIn(w.name).length);
   row.append(spacer, count);
 
-  const theme = themeControl(w);
-  if (theme) row.appendChild(theme);
+  row.appendChild(themeControl(w));
 
   const rename = document.createElement("button");
   rename.className = "row-action ws-rename-btn";
@@ -349,12 +353,35 @@ function workspaceRow(w: WorkspaceEntry, index: number, box: HTMLElement): HTMLE
 }
 
 /**
- * The row's per-workspace theme picker. Per-workspace themes aren't wired yet,
- * so there's none to show; when they are, this returns the select (150px,
- * "Global theme" + every palette) and the row lays it out before ✎.
+ * The row's theme select (handoff 1f): "Global theme" (inherit) or any
+ * palette, custom ones included. Applies at once, re-skinning the app if this
+ * is the workspace on screen. A theme it's set to that isn't loaded (a custom
+ * theme whose file has gone) shows as such, and resolves as the global theme
+ * until it's back or another choice replaces it.
  */
-function themeControl(_w: WorkspaceEntry): HTMLElement | null {
-  return null;
+function themeControl(w: WorkspaceEntry): HTMLElement {
+  const select = document.createElement("select");
+  select.className = "ws-theme";
+  select.setAttribute("aria-label", `Theme for ${w.label}`);
+  const option = (value: string, label: string) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    select.appendChild(opt);
+  };
+  option("", "Global theme");
+  const themes = allThemes();
+  for (const t of themes) option(t.id, t.label);
+  const current = workspaceThemeId(w.name);
+  if (current !== null && !themes.some((t) => t.id === current)) option(current, `${current} (not found)`);
+  select.value = current ?? "";
+  select.title = select.selectedOptions[0]?.textContent ?? "";
+  select.addEventListener("change", () => {
+    setWorkspaceTheme(w.name, select.value || null);
+    select.title = select.selectedOptions[0]?.textContent ?? "";
+    drawn = signature();
+  });
+  return select;
 }
 
 function renameInput(w: WorkspaceEntry): HTMLInputElement {

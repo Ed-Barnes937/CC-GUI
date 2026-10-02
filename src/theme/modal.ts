@@ -3,9 +3,14 @@
 // preview as you browse. Enter/click commits (chooseTheme, or setMode("system")
 // for the toggle); Esc / outside-click restores the previously-applied theme.
 //
+// It edits the global theme. While the active workspace has its own theme, a
+// note above the list says so ("OSS uses Tokyo Night · Manage"), since a commit
+// then changes what other workspaces show, not this one; Manage opens
+// Settings › Workspaces, where the override is set.
+//
 // Keyboard: ↑/↓ move (and live-preview), Home/End jump to the first/last theme,
 // type-ahead jumps to a theme by name, Enter commits, Esc cancels. Tab is trapped
-// so the popover keeps focus. Exposed as an ARIA listbox (aria-activedescendant),
+// so the popover keeps focus (moving between the list and Manage, when shown). Exposed as an ARIA listbox (aria-activedescendant),
 // theme rows as options, the follow-system control as a switch.
 
 import {
@@ -13,13 +18,16 @@ import {
   chooseTheme,
   previewTheme,
   applyTheme,
+  resolveGlobalTheme,
   resolveTheme,
-  currentTheme,
   preferredTheme,
   getMode,
   setMode,
+  workspaceOverride,
   type Appearance,
 } from "./index";
+import { workspaces } from "../app/store";
+import { activeEntry, activeWorkspace } from "../app/workspaces";
 
 // Swatch roles shown per row — a quick read of each theme: its canvas, its body
 // text on that canvas (so the core readability contrast is visible, not just two
@@ -27,6 +35,15 @@ import {
 const SWATCH_KEYS = ["bg-base", "text", "accent"];
 
 let open = false;
+
+// What the note's Manage does. Set by the workspace chrome (it opens Settings ›
+// Workspaces), so this module doesn't import the settings pane, which imports it.
+let manageWorkspaceThemes: (() => void) | null = null;
+
+/** Wire the note's Manage link. */
+export function setManageWorkspaceThemes(open: () => void): void {
+  manageWorkspaceThemes = open;
+}
 
 // `appearance` (passed by the palette's per-slot commands) only seeds the initial
 // selection; the popover always lists every theme regardless.
@@ -36,9 +53,9 @@ export function openThemeModal(appearance?: Appearance): void {
   if (!themes.length) return;
   const anchor = document.querySelector<HTMLElement>("#tb-theme");
   const followingSystem = getMode() === "system";
-  // The resolved active theme always carries the ✓ check, even while following
-  // system — it's the theme currently on screen.
-  const activeId = currentTheme().id;
+  // The resolved global theme always carries the ✓ check, even while following
+  // system: it's the theme on screen, unless a workspace override covers it.
+  const activeId = resolveGlobalTheme().id;
   // Seed selection: opening with an explicit appearance highlights that
   // appearance's preferred theme (even in system mode, so [Set dark theme…]
   // lands on the dark slot); otherwise the active theme.
@@ -129,6 +146,8 @@ export function openThemeModal(appearance?: Appearance): void {
   hint.textContent = "↑↓ preview · ↵ apply · esc cancel";
   hint.setAttribute("aria-hidden", "true");
 
+  const note = overrideNote();
+  if (note) box.appendChild(note.el);
   box.append(list, hint);
   overlay.appendChild(box);
 
@@ -181,7 +200,7 @@ export function openThemeModal(appearance?: Appearance): void {
   function select(i: number): void {
     selected = i;
     // Live-preview: the OS-resolved theme for the follow-system row, else the theme.
-    schedulePreview(i === -1 ? resolveTheme() : themes[i]);
+    schedulePreview(i === -1 ? resolveGlobalTheme() : themes[i]);
     render();
   }
   function close(): void {
@@ -197,18 +216,32 @@ export function openThemeModal(appearance?: Appearance): void {
     close();
   }
   function cancel(): void {
-    applyTheme(resolveTheme()); // revert to the saved selection
+    applyTheme(resolveTheme()); // revert to the saved selection (and any override)
     close();
   }
+  function manage(): void {
+    cancel();
+    manageWorkspaceThemes?.();
+  }
+  note?.manage.addEventListener("click", manage);
   function onKey(e: KeyboardEvent): void {
     e.stopPropagation(); // owns the keyboard while open
+    // Browsing from Manage takes focus back to the list it moves through.
+    const browsing = e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End" ||
+      (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey);
+    if (browsing && note && document.activeElement === note.manage) list.focus();
     if (e.key === "Escape") { e.preventDefault(); cancel(); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(Math.min(selected + 1, themes.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(Math.max(selected - 1, -1)); }
     else if (e.key === "Home") { e.preventDefault(); select(0); }
     else if (e.key === "End") { e.preventDefault(); select(themes.length - 1); }
-    else if (e.key === "Enter") { e.preventDefault(); commit(); }
-    else if (e.key === "Tab") { e.preventDefault(); list.focus(); } // focus trap: the popover owns focus
+    else if (e.key === "Enter") { e.preventDefault(); if (note && document.activeElement === note.manage) manage(); else commit(); }
+    else if (e.key === "Tab") {
+      // Focus trap: the popover owns focus, moving between the list and Manage.
+      e.preventDefault();
+      if (note && document.activeElement !== note.manage) note.manage.focus();
+      else list.focus();
+    }
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); typeAhead(e.key); }
   }
 
@@ -220,6 +253,23 @@ export function openThemeModal(appearance?: Appearance): void {
   render();
   select(selected); // live-preview the seeded selection on open
   list.focus();
+}
+
+/** "OSS uses Tokyo Night · Manage", while the active workspace has its own
+ *  theme; null otherwise. */
+function overrideNote(): { el: HTMLElement; manage: HTMLButtonElement } | null {
+  const override = workspaceOverride();
+  if (!override) return null;
+  const el = document.createElement("div");
+  el.className = "theme-modal-note";
+  const text = document.createElement("span");
+  text.textContent = `${activeEntry(workspaces(), activeWorkspace()).label} uses ${override.label} · `;
+  const manage = document.createElement("button");
+  manage.className = "theme-modal-manage";
+  manage.textContent = "Manage";
+  manage.title = "Set each workspace's theme in Settings › Workspaces";
+  el.append(text, manage);
+  return { el, manage };
 }
 
 // Anchor the panel's top-right corner under the trigger button, clamped to the

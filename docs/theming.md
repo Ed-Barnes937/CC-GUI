@@ -111,3 +111,24 @@ The diff viewer highlights code with [Shiki](https://shiki.style). Two options:
 - If your chosen theme's file is deleted or rejected, the app silently falls back to
   the built-in of that appearance. The built-ins can't be removed, so theming never
   breaks the app.
+
+## Per-workspace themes
+
+Each workspace can have its own theme, set in **Settings › Workspaces** (the
+select on its row). "Global theme" means the workspace inherits the theme picked
+in the ◐ picker. An override is one palette whatever the light/dark mode, and
+switching workspaces re-skins the chrome, the terminals and diffs. The ◐ picker
+always edits the global theme; while the workspace on screen has its own, the
+picker says so ("OSS uses Tokyo Night · Manage").
+
+Overrides are the GUI's own (localStorage `cc-workspace-themes`, keyed by
+workspace name), not the TUI's `[workspace_themes]`. A rename in CC-GUI carries
+the override with it; a rename or delete from the TUI drops it. A custom theme
+whose file is removed falls back to the global theme, and the choice is kept,
+so it comes back with the file.
+
+The no-flash boot replays the theme that was on screen at quit, so relaunching
+into the same workspace (Open on launch: "Last used") paints its theme from the
+first frame. When the launch lands in a different workspace (a pinned startup
+workspace, or one deleted meanwhile) whose theme differs, the previous theme
+shows for a moment before the right one applies.

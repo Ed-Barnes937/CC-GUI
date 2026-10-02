@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from "vite";
-import { THEMES, type Theme } from "./src/theme";
+import { KEY_OVERRIDE_VARS, THEMES, type Theme } from "./src/theme";
 
 // No-flash boot: inject the default light/dark CSS var sets (derived from the
 // theme registry — single source, no drift) plus a tiny pre-paint script that
@@ -21,12 +21,20 @@ function themeBoot(): Plugin {
   // applyTheme) as inline styles. The cache is the only way a *custom* theme —
   // unknown at build time, so absent from the injected blocks above — paints
   // correctly before first paint. No cache (first run) falls back to those blocks.
+  // A workspace override on screen at quit was cached on its own, appearance
+  // included (an override ignores the mode), and wins: relaunching into the
+  // same workspace paints it. A launch into a different workspace (a pinned
+  // startup one) can flash it once; see docs/theming.md.
   const script =
-    "try{var m=localStorage.getItem('cc-theme-mode')||'system';" +
+    // The mode's appearance is set first, so a bad cache entry still leaves it.
+    "try{var r=document.documentElement,o;" +
+    "var m=localStorage.getItem('cc-theme-mode')||'system';" +
     "var d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);" +
-    "var a=d?'dark':'light';var r=document.documentElement;r.dataset.appearance=a;" +
-    "var v=localStorage.getItem('cc-theme-vars-'+a);" +
-    "if(v){var o=JSON.parse(v);for(var k in o)r.style.setProperty('--'+k,o[k]);}" +
+    "var a=d?'dark':'light';r.dataset.appearance=a;" +
+    `var w=localStorage.getItem('${KEY_OVERRIDE_VARS}');` +
+    "if(w){w=JSON.parse(w);r.dataset.appearance=w.appearance==='light'?'light':'dark';o=w.cssVars;}" +
+    "else{var v=localStorage.getItem('cc-theme-vars-'+a);if(v)o=JSON.parse(v);}" +
+    "if(o){for(var k in o)r.style.setProperty('--'+k,o[k]);}" +
     "}catch(e){}";
   return {
     name: "theme-boot",
