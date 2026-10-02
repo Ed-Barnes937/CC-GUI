@@ -118,6 +118,7 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Next workspace / workspace menu (TUI defaults; configurable) | `w` / `W` |
 | Switch workspace / create one / manage them | click the workspace chip in the title bar |
 | Move a project to another workspace | right-click its header → Move to workspace, or drag the header onto the workspace chip |
+| Reorder workspaces (Settings › Workspaces) | drag the `⋮⋮` handle, or focus it and press `Up` / `Down` |
 | Previous / next terminal tab | `Cmd+Opt+←` / `Cmd+Opt+→` |
 | Previous / next session (attaches it) | `Cmd+Opt+↑` / `Cmd+Opt+↓` |
 | Open/close file explorer (active session's repo) | `Cmd/Ctrl+E` |
