@@ -205,11 +205,11 @@ Each PR leaves the app shippable. `npm run typecheck`, unit tests, iwft,
 - Per-workspace view memory (decision 8); selection cleared when the selected
   session's project leaves the active workspace.
 - Keys: ⌘⌥1–9 (⌘⇧1–9 until PR 7) hard-wired next to ⌘1–9 in `commands.ts`;
-  `KEY_ACTIONS` entries for next/previous workspace, switch-workspace picker and new workspace, using
-  upstream's action names (`next_workspace`, `previous_workspace`,
-  `workspace_picker`, `new_workspace`) so a configured binding carries over; ⌘K
-  gets "Switch workspace: <name>". Update `HELP_SECTIONS` in `src/help.ts` and
-  the README keyboard table.
+  `KEY_ACTIONS` entries for next/previous workspace, switch-workspace picker
+  and new workspace, using upstream's action names (`next_workspace`,
+  `previous_workspace`, `workspace_picker`, `new_workspace`) so a configured
+  binding carries over; ⌘K gets "Switch workspace: <name>". Update
+  `HELP_SECTIONS` in `src/help.ts` and the README keyboard table.
 - iwft: chip hidden with only Main; switching filters sidebar/board/tabs/pills;
   the startup choice is honoured; a vanished workspace falls back to Main.
 
