@@ -31,11 +31,18 @@ export type Field = {
   enabledBy?: string;
 };
 
-export type Category =
-  | { id: string; label: string; fields: Field[]; note?: string }
-  | { id: string; label: string; custom: "sections"; note?: string }
-  | { id: string; label: string; custom: "theme"; note?: string }
-  | { id: string; label: string; custom: "features"; note?: string };
+/** A tab with its own renderer. `keywords` are what the settings search
+ *  matches besides the label, standing in for the field labels a
+ *  schema-driven tab is searched by. */
+type CustomCategory = {
+  id: string;
+  label: string;
+  custom: "sections" | "theme" | "features" | "workspaces";
+  note?: string;
+  keywords?: string[];
+};
+
+export type Category = { id: string; label: string; fields: Field[]; note?: string } | CustomCategory;
 
 export const COMMANDER_CATEGORIES: Category[] = [
   {
@@ -144,6 +151,13 @@ export const COMMANDER_CATEGORIES: Category[] = [
   },
   { id: "sections", label: "Sections", custom: "sections", note: "Group sessions in the list. Rules are evaluated top-to-bottom; the first match wins. Unmatched sessions fall into the built-in catch-all. Renaming or removing a section moves any manually-pinned sessions back to In Progress." },
   {
+    id: "workspaces",
+    label: "Workspaces",
+    custom: "workspaces",
+    note: "A workspace is a label on a project. Switching filters the Console and Board to that workspace's projects; sessions elsewhere keep running. Deleting a workspace moves its projects to Main.",
+    keywords: ["Open on launch", "Startup workspace", "Main label", "Rename workspace", "Delete workspace", "New workspace"],
+  },
+  {
     id: "tui",
     label: "Terminal UI",
     note: "These affect the claude-commander terminal UI, not this GUI.",
@@ -208,6 +222,7 @@ export const CATEGORY_ICONS: Record<string, string> = {
   stt: "◉",
   telemetry: "◈",
   sections: "▤",
+  workspaces: "◇",
   tui: "❯",
   advanced: "≡",
 };

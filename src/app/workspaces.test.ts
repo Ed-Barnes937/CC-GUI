@@ -11,15 +11,20 @@ import {
   onWorkspaceChange,
   projectCount,
   reconcileActiveWorkspace,
+  registerWorkspaceState,
   rememberView,
   resetWorkspacesForTest,
   setActiveWorkspace,
+  validateWorkspaceLabel,
   validateWorkspaceName,
   viewMemory,
+  workspaceDeleted,
+  workspaceRenamed,
   workspaceKey,
   workspaceShortcut,
   workspacesVisible,
   type WorkspaceChange,
+  type WorkspaceKeyedState,
 } from "./workspaces";
 
 const MAIN: WorkspaceEntry = { name: null, label: "Main" };
@@ -125,6 +130,24 @@ describe("validateWorkspaceName", () => {
   });
 });
 
+describe("validateWorkspaceLabel", () => {
+  it("accepts and trims a label, the default word Main included", () => {
+    expect(validateWorkspaceLabel("  Home ", LIST)).toEqual({ ok: true, name: "Home" });
+    expect(validateWorkspaceLabel("Main", LIST)).toEqual({ ok: true, name: "Main" });
+    expect(validateWorkspaceLabel("last", LIST).ok).toBe(true);
+  });
+
+  it("applies the label rules", () => {
+    expect(validateWorkspaceLabel(" ", LIST)).toEqual({ ok: false, error: "workspace name must not be empty" });
+    expect(validateWorkspaceLabel("a".repeat(41), LIST).ok).toBe(false);
+    expect(validateWorkspaceLabel("a\nb", LIST).ok).toBe(false);
+  });
+
+  it("refuses a clash with a named workspace, naming it as the backend does", () => {
+    expect(validateWorkspaceLabel("work", LIST)).toEqual({ ok: false, error: 'workspace "Work" is defined twice' });
+  });
+});
+
 describe("the active workspace", () => {
   it("defaults to Main and persists a switch", () => {
     expect(activeWorkspace()).toBe(null);
@@ -205,5 +228,84 @@ describe("view memory", () => {
     localStorage.setItem("cc-workspace-view", JSON.stringify({ Work: { selected: 3, tab: null } }));
     resetWorkspacesForTest();
     expect(viewMemory("Work")).toEqual({ selected: null, tab: null });
+  });
+});
+
+describe("state keyed by workspace", () => {
+  /** A fake store, as a per-workspace theme map would be. */
+  function fakeStore(initial: Record<string, string>): WorkspaceKeyedState & { data: Record<string, string> } {
+    const data = { ...initial };
+    return {
+      data,
+      keys: () => Object.keys(data),
+      move(from, to) {
+        if (!(from in data)) return;
+        data[to] = data[from];
+        delete data[from];
+      },
+      drop(key) {
+        delete data[key];
+      },
+    };
+  }
+
+  it("moves every store's entry on a rename, view memory included", () => {
+    const themes = fakeStore({ OSS: "tokyo", Work: "latte" });
+    registerWorkspaceState(themes);
+    rememberView("OSS", { selected: "s9", tab: "cc-s9" });
+    workspaceRenamed("OSS", "Open", false);
+    expect(themes.data).toEqual({ Open: "tokyo", Work: "latte" });
+    expect(viewMemory("Open")).toEqual({ selected: "s9", tab: "cc-s9" });
+    expect(viewMemory("OSS")).toEqual({ selected: null, tab: null });
+    resetWorkspacesForTest();
+    expect(viewMemory("Open")).toEqual({ selected: "s9", tab: "cc-s9" }); // persisted
+  });
+
+  it("keeps a renamed active workspace active, through a stale snapshot too", () => {
+    const seen: WorkspaceChange[] = [];
+    setActiveWorkspace("OSS");
+    onWorkspaceChange((c) => seen.push(c));
+    workspaceRenamed("OSS", "Open", true);
+    expect(activeWorkspace()).toBe("Open");
+    expect(seen).toEqual([{ prev: "OSS", next: "Open", reason: "renamed" }]);
+    reconcileActiveWorkspace(LIST); // built before the rename landed
+    expect(activeWorkspace()).toBe("Open");
+  });
+
+  it("switches back to a renamed workspace a push had already left", () => {
+    setActiveWorkspace("OSS");
+    reconcileActiveWorkspace([MAIN, WORK, { name: "Open", label: "Open" }]); // the rename's push came first
+    expect(activeWorkspace()).toBe(null);
+    const seen: WorkspaceChange[] = [];
+    onWorkspaceChange((c) => seen.push(c));
+    workspaceRenamed("OSS", "Open", true);
+    expect(seen).toEqual([{ prev: null, next: "Open", reason: "switch" }]);
+  });
+
+  it("leaves the active workspace alone when another one is renamed", () => {
+    setActiveWorkspace("Work");
+    workspaceRenamed("OSS", "Open", false);
+    expect(activeWorkspace()).toBe("Work");
+  });
+
+  it("drops every store's entry on a delete", () => {
+    const themes = fakeStore({ OSS: "tokyo", [MAIN_KEY]: "mocha" });
+    registerWorkspaceState(themes);
+    rememberView("OSS", { selected: "s9", tab: null });
+    workspaceDeleted("OSS");
+    expect(themes.data).toEqual({ [MAIN_KEY]: "mocha" });
+    expect(viewMemory("OSS")).toEqual({ selected: null, tab: null });
+  });
+
+  it("prunes entries for workspaces gone elsewhere, but never Main's or an expected one's", () => {
+    const themes = fakeStore({ OSS: "tokyo", Work: "latte", Side: "nord", [MAIN_KEY]: "mocha" });
+    registerWorkspaceState(themes);
+    rememberView("OSS", { selected: "s9", tab: null });
+    rememberView(null, { selected: "s1", tab: null });
+    expectWorkspace("Side");
+    reconcileActiveWorkspace([MAIN, WORK]); // OSS renamed or deleted from the TUI
+    expect(themes.data).toEqual({ Work: "latte", Side: "nord", [MAIN_KEY]: "mocha" });
+    expect(viewMemory("OSS")).toEqual({ selected: null, tab: null });
+    expect(viewMemory(null)).toEqual({ selected: "s1", tab: null });
   });
 });

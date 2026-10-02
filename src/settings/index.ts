@@ -19,6 +19,7 @@ import { makeControl } from "./controls";
 import { renderFeatures, renderTheme } from "./panels";
 import { decodeSections, encodeSections, renderSections, replaceSectionDrafts, sectionDrafts } from "./sections";
 import { box, closeSettings, isOpen, openOverlay, overlay } from "./shell";
+import { renderWorkspacesTab, resetWorkspacesTab } from "./workspaces";
 import {
   activeCat,
   fieldId,
@@ -45,7 +46,7 @@ function visibleCategories(): Category[] {
   if (!q) return CATEGORIES;
   return CATEGORIES.filter((cat) => {
     if (cat.label.toLowerCase().includes(q)) return true;
-    if (!("fields" in cat)) return false;
+    if (!("fields" in cat)) return (cat.keywords ?? []).some((k) => k.toLowerCase().includes(q));
     return cat.fields.some(
       (f) => f.label.toLowerCase().includes(q) || (f.desc ?? "").toLowerCase().includes(q),
     );
@@ -257,6 +258,7 @@ function renderPanel(): void {
   if ("custom" in cat) {
     if (cat.custom === "sections") renderSections(panel);
     else if (cat.custom === "features") renderFeatures(panel);
+    else if (cat.custom === "workspaces") renderWorkspacesTab(panel);
     else renderTheme(panel);
     restore();
     return;
@@ -326,7 +328,8 @@ async function saveSettings(): Promise<void> {
   }
 }
 
-export async function openSettings(): Promise<void> {
+/** Open the pane, on category `cat` (by id) or the first one. */
+export async function openSettings(cat?: string): Promise<void> {
   let config: Config;
   try {
     config = await invoke<Config>("get_config");
@@ -336,8 +339,9 @@ export async function openSettings(): Promise<void> {
   }
   replaceWorking(structuredClone(config));
   replaceSectionDrafts(decodeSections(working.sections));
-  setActiveCat(CATEGORIES[0].id);
+  setActiveCat(CATEGORIES.some((c) => c.id === cat) ? cat! : CATEGORIES[0].id);
   setSearchQuery("");
+  resetWorkspacesTab();
   originalJson = JSON.stringify(snapshotForSave());
   render();
   openOverlay();
