@@ -11,7 +11,8 @@ It embeds `claude-commander` directly (as a library) and drives the same tmux-ba
 - **Project shells** — open a plain shell terminal in a project or worktree directory.
 - **Code review** — read-only diff view with inline comments; stage comments and **Apply** them back to the agent.
 - **Cascade** — merge, resume, and abandon stacked sessions; push a stack.
-- **Theming** — 10 built-in themes plus your own custom themes, with a live-preview picker. See [`docs/theming.md`](docs/theming.md).
+- **Workspaces** - `claude-commander`'s workspaces: scope the whole window to a named group of projects, from the title-bar chip (shown once a second workspace exists), `Cmd+Shift+1`-`9` or the palette. Move a project between workspaces from its header menu or by dragging it onto the chip; create, rename, reorder and delete them, pick the startup workspace and give each its own theme in Settings › Workspaces. The workspaces and which project is in each are shared with the TUI (the active workspace and the themes are the GUI's own), and hidden workspaces' sessions keep running.
+- **Theming** - 19 built-in themes plus your own custom themes, with a live-preview picker, and optionally a theme per workspace. See [`docs/theming.md`](docs/theming.md).
 - **File explorer** (`Cmd+E`) — keyboard-driven, nnn-style browser of the active session's repo; start typing to fuzzy-search every path in the repo, and open a file to drop an `@path` reference into the terminal.
 - **Markdown viewer** (`Cmd+M`) — distraction-free reader for the active session's repo docs (plans, design docs, READMEs). Opens on the doc the session's branch changed most recently (else README), stays live while the agent keeps writing, and has a fuzzy file picker (`/`) plus in-repo link navigation.
 - **Command palette** (`Cmd/Ctrl+K`) — fuzzy-jump to a session or run any command.
@@ -165,7 +166,7 @@ The packaging scripts (`app:install`) and the login-shell PATH fix are macOS-spe
 
 ## Theming
 
-CC-GUI owns its own theming (independent of `claude-commander` config). Ten themes ship built in, and you can drop your own JSON themes into the app's config folder without rebuilding. Full authoring guide: [`docs/theming.md`](docs/theming.md).
+CC-GUI owns its own theming (independent of `claude-commander` config). Nineteen themes ship built in, and you can drop your own JSON themes into the app's config folder without rebuilding. Full authoring guide: [`docs/theming.md`](docs/theming.md).
 
 ## Usage telemetry
 

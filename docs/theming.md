@@ -20,8 +20,10 @@ file: open the command palette (**⌘K**) and run:
 - **Theme: Export current theme as template…** — writes the *active* theme out as a
   complete, editable `*.json` you can tweak.
 
-After editing, run **Theme: Reload custom themes**, then **Theme: \<your label\>** to
-apply it. The active theme is marked `current` in the palette.
+After editing, run **Theme: Reload custom themes**, then pick it in the title bar's
+◐ picker (or **Theme: Set dark theme…** / **Theme: Set light theme…**, whichever its
+`appearance` is). A custom theme can also be a workspace's own theme (see
+[Per-workspace themes](#per-workspace-themes)).
 
 A full working example lives at [`example-theme.json`](./example-theme.json).
 
@@ -115,11 +117,13 @@ The diff viewer highlights code with [Shiki](https://shiki.style). Two options:
 ## Per-workspace themes
 
 Each workspace can have its own theme, set in **Settings › Workspaces** (the
-select on its row). "Global theme" means the workspace inherits the theme picked
-in the ◐ picker. An override is one palette whatever the light/dark mode, and
-switching workspaces re-skins the chrome, the terminals and diffs. The ◐ picker
-always edits the global theme; while the workspace on screen has its own, the
-picker says so ("OSS uses Tokyo Night · Manage").
+select on its row, listing every built-in and custom theme). "Global theme" means
+the workspace inherits the theme picked in the ◐ picker. An override is one palette
+whatever the light/dark mode, and switching workspaces re-skins the chrome, the
+terminals and diffs. The ◐ picker always edits the global theme; while the
+workspace on screen has its own, the picker says so ("OSS uses Tokyo Night ·
+Manage"), and **Theme: Export current theme as template…** exports that
+workspace's theme, since it's the one on screen.
 
 Overrides are the GUI's own (localStorage `cc-workspace-themes`, keyed by
 workspace name), not the TUI's `[workspace_themes]`. A rename in CC-GUI carries
