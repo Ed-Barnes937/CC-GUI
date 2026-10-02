@@ -55,6 +55,24 @@ export class WorkspaceSettingsPageObject extends AppPageObject {
     return this.panel.locator(".ws-rename-input");
   }
 
+  /** `label`'s row's theme select. */
+  themeSelect(label: string): Locator {
+    return this.row(label).locator("select.ws-theme");
+  }
+
+  /** Pick `theme` (an option's text, e.g. "Tokyo Night" or "Global theme")
+   *  for `label`'s workspace. */
+  setTheme(label: string, theme: string): Promise<void> {
+    return this.step(`setTheme: ${label} → ${theme}`, async () => {
+      await this.themeSelect(label).selectOption({ label: theme });
+    });
+  }
+
+  /** The GUI's per-workspace theme map, as persisted. */
+  storedThemes(): Promise<Record<string, string>> {
+    return this.page.evaluate(() => JSON.parse(localStorage.getItem("cc-workspace-themes") ?? "{}"));
+  }
+
   addInput(): Locator {
     return this.panel.locator("#ws-add");
   }

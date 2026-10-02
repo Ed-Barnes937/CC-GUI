@@ -200,6 +200,12 @@ class TauriSimulator {
     };
   }
 
+  /** Replace the themes folder's files (list_custom_themes), as the user
+   *  adding or deleting one would. The GUI sees it on its next reload. */
+  setCustomThemes(files: unknown[]): void {
+    this.customThemes = files;
+  }
+
   /** Make read_session_file throw until reset — a mid-write read failure. */
   setMarkdownReadsFail(fail: boolean): void {
     this.markdownReadsFail = fail;
