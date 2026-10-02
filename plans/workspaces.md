@@ -13,9 +13,9 @@ Design reference: [`docs/workspaces/design_handoff_workspaces/`](../docs/workspa
 fidelity; this plan covers how to build it on the real upstream contract, and
 where that contract overrides the handoff.
 
-Idea doc: [`docs/ideas/workspaces.md`](../docs/ideas/workspaces.md) (captured
-in the v0.37.0/v0.38.0 bump). This plan follows it except where noted under
-"Where this plan departs from the idea doc"; PR 6 deletes it, as it asks.
+Idea doc: `docs/ideas/workspaces.md` (captured in the v0.37.0/v0.38.0 bump;
+deleted in PR 6, as it asked, and still in git history). This plan follows it
+except where noted under "Where this plan departs from the idea doc".
 
 ## Upstream contract (the source of truth)
 

@@ -35,7 +35,8 @@ re-derives `PATH` from the login shell at startup (so child processes like
 - **`cascade.rs`** — merge / resume / abandon stacked sessions, push a stack.
 - **`pty.rs`** — PTY attach/write/resize/detach backing the xterm terminals.
 - **`commander.rs`** — the persistent commander session.
-- **`settings.rs`** — read/save `claude-commander` config + keybindings.
+- **`settings.rs`** - read/save `claude-commander` config + keybindings (a save keeps the live workspace fields, not the modal's stale copy).
+- **`workspaces.rs`** - the snapshot's merged workspace list and the workspace commands (create / reorder / rename / delete, move a project, Main label, startup choice). Upstream's `set_workspace_defs` replaces the whole list, so each command builds it from the current config in a tested `*_request` helper; the frontend never sends a full list.
 - **`themes.rs`** — list/save custom themes, open the themes folder.
 - **`service.rs` / `polling.rs`** — shared `claude-commander` service handle and background refresh loops.
 
@@ -49,8 +50,11 @@ bottom-up — nothing in `app/` imports a view, and no view imports another.
   backend pushes), `elements.ts` (the static chrome from `index.html`),
   `store.ts` (the current snapshot, the GUI-owned prefs, the optimistic
   delete/rename masks, and `applySnapshot`), `render.ts` (views register a
-  renderer under a name; callers ask for a name via `requestRender`), and
-  `actions.ts` (the invoke/catch/refresh wrappers).
+  renderer under a name; callers ask for a name via `requestRender`),
+  `actions.ts` (the invoke/catch/refresh wrappers), and `workspaces.ts` (the
+  active workspace and `onWorkspaceChange`, name validation, per-workspace
+  view memory, and `registerWorkspaceState` for any GUI state keyed by
+  workspace, so it follows renames and deletes).
 - **`terminal/`** — `state.ts` (which terminals exist and where),
   `surface.ts` (the single/split/docked state machine), `attach.ts` (xterm +
   the PTY channel), `tabs.ts`, `restart.ts` (crash-loop guard).
@@ -62,7 +66,9 @@ bottom-up — nothing in `app/` imports a view, and no view imports another.
   `state.ts` its render modules share, so they don't import each other.
 - **`chrome/`** — `titlebar.ts`, `attention.ts` (the queue behind both
   attention pills), `layout.ts` (the Console/Board swap), `commander.ts`,
-  `onboarding.ts`.
+  `onboarding.ts`, `workspaces.ts` (the title-bar chip and menu, and the one
+  listener that handles what a workspace switch does to the screen),
+  `moveProject.ts` (moving a project between workspaces: menu, key, drag).
 - **`commands.ts`** — one `KEY_ACTIONS` table backing the palette, the
   configurable keybindings, and the accelerators that must beat xterm.
 - **`palette.ts`** — `Cmd/Ctrl+K` fuzzy command/session palette.
@@ -79,7 +85,9 @@ bottom-up — nothing in `app/` imports a view, and no view imports another.
   user-authored themes from disk.
 - **`settings/`** — the settings modal: `schema.ts` (every setting, declared),
   `controls.ts` (one field → one control), `sections.ts`, `panels.ts` (the
-  GUI-only Features/Appearance tabs), `state.ts`, `shell.ts`, `index.ts`.
+  GUI-only Features/Appearance tabs), `state.ts`, `shell.ts`, `index.ts`,
+  `workspaces.ts` (the Workspaces tab, which applies each edit at once through
+  its own command rather than the pane's Save).
 - **`menu.ts`, `keys.ts`, `help.ts`, `resize.ts`, `toast.ts`, `drag.ts`** — context menus, key handling, the `?` help overlay, panel resize, toasts, the shared pointer drag gesture.
 - **`features.ts`, `featureList.ts`** — the optional-feature registry: features
   that not every user wants, contributing palette entries and keybindings and
@@ -89,13 +97,19 @@ bottom-up — nothing in `app/` imports a view, and no view imports another.
 
 Adding a view: register its renderer with `registerView`, read state from
 `app/store.ts`, and ask for redraws with `requestRender` rather than calling
-another view's render function.
+another view's render function. The store scopes to the active workspace:
+`groups()` and `sections()` hold only its projects and sessions, so a view
+filters nothing itself. Reach for `allGroups()` (or the `find*`/`groupOf`
+lookups) only when you must see past it. See
+[ADR-0009](docs/adr/0009-workspace-scope-at-the-store.md).
 
 ## Theming
 
 The GUI owns its theming independently of `claude-commander` config — it never
 writes the commander config (`save_config`); preferences live in localStorage
-(`cc-theme-mode`, `cc-theme-light`, `cc-theme-dark`). Three surfaces are themed:
+(`cc-theme-mode`, `cc-theme-light`, `cc-theme-dark`, and the per-workspace
+overrides in `cc-workspace-themes`), and `cc-theme-vars-*` caches what the
+no-flash boot paints. Three surfaces are themed:
 CSS chrome (semantic tokens in `style.css`), the xterm terminal (full `ITheme`),
 and Shiki diff highlighting. Authoring guide: [`docs/theming.md`](docs/theming.md).
 
