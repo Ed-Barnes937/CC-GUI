@@ -46,7 +46,7 @@ test.describe("with three workspaces", () => {
     await expect(workspaces.menu().locator(".menu-header")).toHaveText("Workspaces");
     await expect(workspaces.menuRows().locator(".menu-label")).toHaveText(["Main", "Work", "OSS"]);
     await expect(workspaces.menuRows().locator(".menu-meta")).toHaveText(["1 project", "2 projects", "1 project"]);
-    await expect(workspaces.menuRows().locator(".menu-shortcut")).toHaveText(["⌘⇧1", "⌘⇧2", "⌘⇧3"]);
+    await expect(workspaces.menuRows().locator(".menu-shortcut")).toHaveText(["⌘⌥1", "⌘⌥2", "⌘⌥3"]);
     await expect(workspaces.tickedRow().locator(".menu-label")).toHaveText("Main");
     await expect(workspaces.menu().locator(".menu-item.indent")).toHaveText([
       "New workspace…",
@@ -65,7 +65,7 @@ test.describe("with three workspaces", () => {
     expect(await workspaces.persistedActive()).toBe("Work");
   });
 
-  test("Cmd+Shift+N jumps to the Nth workspace", async ({ workspaces, page }) => {
+  test("Cmd+Opt+N jumps to the Nth workspace", async ({ workspaces, page }) => {
     const sidebar = new SidebarPageObject(page);
     await workspaces.switchByNumber(3);
     await expect(workspaces.chipLabel()).toHaveText("OSS");
@@ -74,6 +74,47 @@ test.describe("with three workspaces", () => {
     await expect(workspaces.chipLabel()).toHaveText("OSS");
     await workspaces.switchByNumber(1);
     await expect(workspaces.chipLabel()).toHaveText("Main");
+  });
+
+  test("Cmd+Shift+N doesn't switch: macOS keeps Cmd+Shift+3/4/5 for screenshots", async ({
+    workspaces,
+    page,
+  }) => {
+    await page.keyboard.press("Meta+Shift+Digit2");
+    await page.keyboard.press("Meta+Shift+Digit3");
+    await expect(workspaces.chipLabel()).toHaveText("Main");
+    expect(await workspaces.persistedActive()).toBe(null);
+  });
+
+  test("Cmd+Opt+N leaves Cmd+N and Cmd+Opt+arrows to the tabs and sessions", async ({ workspaces, page }) => {
+    // Pressed with the terminal focused, as a user would: the capture-phase
+    // accelerators run before xterm sees the key.
+    const terminal = new TerminalPageObject(page);
+    const activeTab = page.locator("#tabs .tab.active .tab-label");
+    await workspaces.switchByNumber(2);
+    await expect(workspaces.chipLabel()).toHaveText("Work");
+    for (const title of ["rate limiter", "auth token refresh"]) {
+      await page.locator(".session-row .title", { hasText: title }).click();
+      await expect(activeTab).toHaveText(title);
+    }
+    await expect(terminal.tabLabels().filter({ visible: true })).toHaveText(["rate limiter", "auth token refresh"]);
+
+    await page.keyboard.press("Meta+1");
+    await expect(activeTab).toHaveText("rate limiter");
+    await page.keyboard.press("Meta+Alt+ArrowRight");
+    await expect(activeTab).toHaveText("auth token refresh");
+    await page.keyboard.press("Meta+Alt+ArrowLeft");
+    await expect(activeTab).toHaveText("rate limiter");
+    // The sidebar cursor is still on the last row clicked.
+    await page.keyboard.press("Meta+Alt+ArrowDown");
+    await expect(activeTab).toHaveText("billing page");
+    await page.keyboard.press("Meta+Alt+ArrowUp");
+    await expect(activeTab).toHaveText("auth token refresh");
+    await expect(workspaces.chipLabel()).toHaveText("Work");
+
+    await workspaces.switchByNumber(1);
+    await expect(workspaces.chipLabel()).toHaveText("Main");
+    await expect(terminal.tabLabels().filter({ visible: true })).toHaveCount(0);
   });
 
   test("the palette lists the other workspaces and only this workspace's sessions", async ({
