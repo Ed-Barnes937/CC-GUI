@@ -221,7 +221,7 @@ test.describe("with three workspaces", () => {
       await tab.close();
       await workspaces.openMenu();
       await expect(workspaces.menuRows().locator(".menu-label")).toHaveText(["Main", "OSS", "Work"]);
-      await expect(workspaces.menuRows().locator(".menu-shortcut")).toHaveText(["⌘⇧1", "⌘⇧2", "⌘⇧3"]);
+      await expect(workspaces.menuRows().locator(".menu-shortcut")).toHaveText(["⌘⌥1", "⌘⌥2", "⌘⌥3"]);
     });
 
     test("dragging the handle moves a workspace", async ({ workspaces, page }) => {

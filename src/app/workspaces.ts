@@ -64,9 +64,9 @@ export function activeEntry(list: WorkspaceEntry[], active: string | null): Work
 }
 
 /** The accelerator that jumps to the workspace at `index` (0-based), shown in
- *  the menu: Cmd+Shift+1..9, so only the first nine have one. */
+ *  the menu: Cmd+Opt+1..9, so only the first nine have one. */
 export function workspaceShortcut(index: number): string | undefined {
-  return index < 9 ? `⌘⇧${index + 1}` : undefined;
+  return index < 9 ? `⌘⌥${index + 1}` : undefined;
 }
 
 export type NameCheck = { ok: true; name: string } | { ok: false; error: string };

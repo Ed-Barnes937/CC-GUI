@@ -54,9 +54,9 @@ export class WorkspacesPageObject extends AppPageObject {
     });
   }
 
-  /** Switch with Cmd+Shift+N (1-based, display order). */
+  /** Switch with Cmd+Opt+N (1-based, display order). */
   switchByNumber(n: number): Promise<void> {
-    return this.step(`switchByNumber: ${n}`, () => this.page.keyboard.press(`Meta+Shift+Digit${n}`));
+    return this.step(`switchByNumber: ${n}`, () => this.page.keyboard.press(`Meta+Alt+Digit${n}`));
   }
 
   /** Start "New workspace…" from the menu and type a name (not yet submitted). */

@@ -46,7 +46,7 @@ export function switchWorkspace(name: string | null): void {
   setActiveWorkspace(name, "switch");
 }
 
-/** Jump to the workspace at `index` in display order (Cmd+Shift+1..9). */
+/** Jump to the workspace at `index` in display order (Cmd+Opt+1..9). */
 export function switchToWorkspaceAt(index: number): void {
   const w = workspaces()[index];
   if (w) switchWorkspace(w.name);
@@ -130,7 +130,7 @@ setManageWorkspaceThemes(manageWorkspaces);
 const countLabel = (n: number) => `${n} ${n === 1 ? "project" : "projects"}`;
 
 /** The workspace rows of the chip's menu: a tick, project counts,
- *  Cmd+Shift+N. `pick` is what a row does. The tick goes on `ticked` (the
+ *  Cmd+Opt+N. `pick` is what a row does. The tick goes on `ticked` (the
  *  active workspace unless told otherwise); `inert` rows do nothing (a
  *  project's own workspace, when the menu is a drop target for it). */
 export function workspaceRows(

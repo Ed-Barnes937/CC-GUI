@@ -82,29 +82,31 @@ export function cycleSession(delta: number): void {
 // iTerm-style tab / session navigation. These are app actions (they never reach
 // the shell), so — like Cmd+W — they're handled here rather than as terminal
 // bytes. Capture phase to beat xterm's key handling on the focused terminal.
-// Cmd+1..9 selects a tab; Cmd+Shift+1..9 a workspace (by display order);
+// Cmd+1..9 selects a tab; Cmd+Opt+1..9 a workspace (by display order);
 // Cmd+Opt+Left/Right cycles tabs; Cmd+Opt+Up/Down walks the sidebar sessions.
-// Bare Cmd+Left/Right stays the terminal's line-start/end.
+// Bare Cmd+Left/Right stays the terminal's line-start/end. (Not Cmd+Shift+N
+// for workspaces: macOS keeps Cmd+Shift+3/4/5 for screenshots, so those never
+// reach the app.)
 window.addEventListener(
   "keydown",
   (e) => {
-    if (!e.metaKey || e.ctrlKey || keyOverlayOpen()) return;
-    if (!e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+    if (!e.metaKey || e.ctrlKey || e.shiftKey || keyOverlayOpen()) return;
+    if (!e.altKey && /^[1-9]$/.test(e.key)) {
       e.preventDefault();
       e.stopPropagation();
       activateTabByIndex(Number(e.key) - 1);
       return;
     }
-    // Shift turns the digit's key into its symbol ("!" for 1 on US layouts),
-    // so match the physical key.
+    if (!e.altKey) return;
+    // Opt turns the digit's key into a symbol on macOS ("¡" for 1), so match
+    // the physical key.
     const digit = /^Digit([1-9])$/.exec(e.code);
-    if (!e.altKey && e.shiftKey && digit) {
+    if (digit) {
       e.preventDefault();
       e.stopPropagation();
       switchToWorkspaceAt(Number(digit[1]) - 1);
       return;
     }
-    if (!e.altKey || e.shiftKey) return;
     const move: Record<string, () => void> = {
       ArrowLeft: () => cycleTab(-1),
       ArrowRight: () => cycleTab(1),

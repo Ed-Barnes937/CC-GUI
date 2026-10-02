@@ -72,9 +72,9 @@ describe("navigation", () => {
     expect(cycleWorkspace(LIST, "Gone", true)).toBe("Work");
   });
 
-  it("gives the first nine workspaces a Cmd+Shift+N shortcut", () => {
-    expect(workspaceShortcut(0)).toBe("⌘⇧1");
-    expect(workspaceShortcut(8)).toBe("⌘⇧9");
+  it("gives the first nine workspaces a Cmd+Opt+N shortcut", () => {
+    expect(workspaceShortcut(0)).toBe("⌘⌥1");
+    expect(workspaceShortcut(8)).toBe("⌘⌥9");
     expect(workspaceShortcut(9)).toBeUndefined();
   });
 

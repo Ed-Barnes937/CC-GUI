@@ -59,6 +59,10 @@ From `claude-commander-protocol::workspace`, `claude-commander-core::api` and
 | `workspaces: {name, order}[]` | `WorkspaceDef` is just `{ name }`, order is array order | Order = array position |
 | Themes stored per frontend | Same, but core's rename/delete only maintains the TUI's map | GUI renames/drops its own localStorage entry after a successful rename/delete |
 
+The GUI departs from the handoff in one place the contract doesn't decide: the
+handoff's ⌘⇧1–9 is ⌘⌥1–9 (PR 7), because macOS reserves ⌘⇧3/4/5 for
+screenshots.
+
 ### Where this plan departs from the idea doc
 
 | Idea doc says | Plan | Why |
@@ -139,7 +143,7 @@ Frontend, a new pure module `src/app/workspaces.ts` (Tauri-free, unit-tested):
   `resolve_startup_workspace(last_used)`, which delegates to viewmodel's
   `resolve_startup_workspace` (`last` → last used, `main` → Main, a name → that
   name, anything missing → Main), so the GUI and TUI cannot disagree.
-- `inWorkspace(group, active)`, `projectCount(name)`, ordering for ⌘⇧N.
+- `inWorkspace(group, active)`, `projectCount(name)`, ordering for ⌘⌥N.
 - `validateWorkspaceName(raw, existing)`: the protocol rules, for inline
   feedback before invoke. The backend re-validates; its error goes to a toast.
 - Reconciliation on every snapshot: if the active workspace has vanished
@@ -196,11 +200,11 @@ Each PR leaves the app shippable. `npm run typecheck`, unit tests, iwft,
   the new-session project picker, the palette's session list.
 - Title-bar chip in `chrome/titlebar.ts` (after the app name, before the count
   pill) and its menu on `.context-menu`: WORKSPACES header, ✓ active row,
-  `N projects`, `⌘⇧N`, then "New workspace…" (name prompt →
+  `N projects`, `⌘⌥N`, then "New workspace…" (name prompt →
   `create_workspace` → switch) and "Manage workspaces…".
 - Per-workspace view memory (decision 8); selection cleared when the selected
   session's project leaves the active workspace.
-- Keys: ⌘⇧1–9 hard-wired next to ⌘1–9 in `commands.ts`; `KEY_ACTIONS` entries
+- Keys: ⌘⌥1–9 (⌘⇧1–9 until PR 7) hard-wired next to ⌘1–9 in `commands.ts`; `KEY_ACTIONS` entries
   for next/previous workspace, switch-workspace picker and new workspace, using
   upstream's action names (`next_workspace`, `previous_workspace`,
   `workspace_picker`, `new_workspace`) so a configured binding carries over; ⌘K
@@ -260,6 +264,16 @@ Each PR leaves the app shippable. `npm run typecheck`, unit tests, iwft,
 - An ADR for "scope at the store" (decision 1), since it changes what
   `groups()` means for every future view.
 - Delete `docs/ideas/workspaces.md`.
+
+### PR 7: switch workspaces with ⌘⌥1–9
+
+- The handoff's ⌘⇧1–9 never fully worked: macOS takes ⌘⇧3/4/5 (and ⌘⇧6 on
+  Touch Bar Macs) for screenshots before the app sees them. ⌘⌥digit has no
+  default macOS binding and joins the family already there (⌘N picks tab N,
+  ⌘⌥←/→ cycles tabs, ⌘⌥↑/↓ walks sessions). The terminal only turns bare ⌘
+  chords into shell bytes, so it loses nothing.
+- Match on `e.code` (`Digit1`-`Digit9`), since ⌥ turns the key into a symbol
+  ("¡" for 1). Update the menu hints, `HELP_SECTIONS`, the README and the iwft.
 
 ## Open questions (recommendations in brackets)
 
