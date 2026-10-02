@@ -97,6 +97,108 @@ export class WorkspacesPageObject extends AppPageObject {
     return this.page.evaluate(() => window.__CC_SIM__.getAttachedPtys());
   }
 
+  // ----- moving a project (handoff 1c) -----
+
+  /** A project's header in the sidebar's project view (its name follows the
+   *  collapse caret). */
+  projectHeader(name: string): Locator {
+    return this.page
+      .locator("#sessions .project-header")
+      .filter({ has: this.page.locator("span", { hasText: new RegExp(`(^|\\s)${name}$`) }) });
+  }
+
+  /** The open project-header (or session) context menu. */
+  contextMenu(): Locator {
+    return this.page.locator(".context-menu:not(.submenu):not(.workspace-menu)");
+  }
+
+  /** The "Move to workspace ▸" submenu, once open. */
+  submenu(): Locator {
+    return this.page.locator(".context-menu.submenu");
+  }
+
+  /** A submenu's (or the move menu's) workspace row by its label. */
+  workspaceRow(menu: Locator, label: string): Locator {
+    return menu.locator(".menu-item.checkable").filter({
+      has: this.page.locator(".menu-label", { hasText: new RegExp(`^${label}$`) }),
+    });
+  }
+
+  /** Right-click a project header. */
+  openProjectMenu(name: string): Promise<void> {
+    return this.step(`openProjectMenu: ${name}`, async () => {
+      await this.projectHeader(name).click({ button: "right" });
+      await expect(this.contextMenu()).toBeVisible();
+    });
+  }
+
+  /** Right-click a project header and open its "Move to workspace" submenu. */
+  openMoveSubmenu(name: string): Promise<void> {
+    return this.step(`openMoveSubmenu: ${name}`, async () => {
+      await this.openProjectMenu(name);
+      await this.contextMenu().locator(".menu-item", { hasText: "Move to workspace" }).hover();
+      await expect(this.submenu()).toBeVisible();
+    });
+  }
+
+  /** Move a project through its header's submenu. */
+  moveViaMenu(name: string, to: string): Promise<void> {
+    return this.step(`moveViaMenu: ${name} → ${to}`, async () => {
+      await this.openMoveSubmenu(name);
+      await this.workspaceRow(this.submenu(), to).click();
+    });
+  }
+
+  /** Press on a project header and drag it onto the workspace chip, leaving
+   *  the button held (the drop menu open) for drop / cancel. */
+  dragProjectToChip(name: string): Promise<void> {
+    return this.step(`dragProjectToChip: ${name}`, async () => {
+      const a = await this.projectHeader(name).boundingBox();
+      const b = await this.chipEl.boundingBox();
+      if (!a || !b) throw new Error("dragProjectToChip: header or chip not visible");
+      const { mouse } = this.page;
+      await mouse.move(a.x + 20, a.y + a.height / 2);
+      await mouse.down();
+      await mouse.move(a.x + 26, a.y + a.height / 2, { steps: 3 }); // cross the threshold
+      await mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 10 });
+    });
+  }
+
+  /** With a drag held, move the pointer over the drop menu's row `label`. */
+  hoverDropRow(label: string): Promise<void> {
+    return this.step(`hoverDropRow: ${label}`, async () => {
+      const row = this.menuEl.locator(".menu-item", { hasText: label }).first();
+      const box = await row.boundingBox();
+      if (!box) throw new Error(`hoverDropRow: no row ${label}`);
+      await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
+    });
+  }
+
+  /** Release the held drag where the pointer is. */
+  release(): Promise<void> {
+    return this.step("release", () => this.page.mouse.up());
+  }
+
+  /** The ghost that follows a dragged project header. */
+  dragGhost(): Locator {
+    return this.page.locator(".project-drag-ghost");
+  }
+
+  /** The newest toast. */
+  lastToast(): Locator {
+    return this.page.locator("#toast-stack .toast").last();
+  }
+
+  /** Projects the fake holds, with their workspace tags (null = Main). */
+  storedProjects(): Promise<{ id: string; name: string; repo_path: string; workspace: string | null }[]> {
+    return this.page.evaluate(() => window.__CC_SIM__.getProjects());
+  }
+
+  /** The fake's tag on the project named `name` (null = Main). */
+  async workspaceOf(name: string): Promise<string | null | undefined> {
+    return (await this.storedProjects()).find((p) => p.name === name)?.workspace;
+  }
+
   /** Run a backend command as another client (the TUI) would, then push the
    *  resulting snapshot. */
   fromTui(cmd: string, args: Record<string, unknown>): Promise<void> {

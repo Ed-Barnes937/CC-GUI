@@ -66,6 +66,8 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     [
       ["Workspace chip", "Switch workspace, create one, or manage them (shown once a second exists)"],
       ["Cmd/Ctrl+K → Switch workspace", "Jump to another workspace from the palette"],
+      ["Right-click project → Move to workspace", "Move the project (and its sessions) to another workspace"],
+      ["Drag project header → chip", "Drop it on a workspace in the menu that opens to move it there"],
       ["Other workspaces", "Hidden, not stopped: their sessions and terminals keep running"],
     ],
   ],

@@ -16,6 +16,7 @@ import { findSession } from "../app/store";
 import type { ProjectGroup } from "../app/types";
 import { openProjectShell } from "../terminal/attach";
 import { deleteSession } from "../session/row";
+import { moveMenuEntry } from "../chrome/moveProject";
 import { setNewSessionProject, setTopInput } from "./state";
 
 export function projectMenuItems(group: ProjectGroup, createKey: string = group.id): MenuItem[] {
@@ -30,6 +31,7 @@ export function projectMenuItems(group: ProjectGroup, createKey: string = group.
     },
     { label: "Project shell", action: () => void openProjectShell(group) },
     "separator",
+    ...moveMenuEntry(group),
     {
       label: "Remove project (deletes all its sessions)",
       danger: true,

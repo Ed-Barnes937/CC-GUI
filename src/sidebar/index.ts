@@ -35,6 +35,7 @@ import {
 import { createSessionInProject, projectPickerItems } from "../session/create";
 import { renderCreateInput, renderTopInput } from "./inputs";
 import { projectMenuItems, sidebarMenuItems } from "./menus";
+import { draggableToWorkspace } from "../chrome/moveProject";
 import { groupStacks, renderSessionRow, renderStack } from "./rows";
 import {
   collapsedSignature,
@@ -192,6 +193,7 @@ export function renderProjectSubheader(group: ProjectGroup, sectionName: string)
   header.addEventListener("contextmenu", (e) =>
     showContextMenu(e, projectMenuItems(group, key)),
   );
+  draggableToWorkspace(header, group.id);
   return header;
 }
 
@@ -291,6 +293,7 @@ export function renderSidebar(): void {
     header.append(headerRule(), buttons);
     const isCollapsed = makeCollapsible(header, name, `proj:${group.id}`);
     header.addEventListener("contextmenu", (e) => showContextMenu(e, projectMenuItems(group)));
+    draggableToWorkspace(header, group.id);
     sessionsEl.appendChild(header);
     if (isCollapsed) continue;
 

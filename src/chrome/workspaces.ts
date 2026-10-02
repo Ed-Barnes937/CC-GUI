@@ -16,7 +16,8 @@ import { openSettings } from "../settings";
 import { refreshNow } from "../app/actions";
 import { registerView, renderAll } from "../app/render";
 import { tbCount, tbWorkspace, tbWorkspaceLabel } from "../app/elements";
-import { allGroups, hasSnapshot, sessionInScope, workspaces } from "../app/store";
+import { allGroups, groups, hasSnapshot, sessionInScope, workspaces } from "../app/store";
+import type { WorkspaceEntry } from "../app/types";
 import {
   activeEntry,
   activeWorkspace,
@@ -35,7 +36,7 @@ import { activeTerm } from "../terminal/state";
 import { scopeTerminals } from "../terminal/surface";
 import { selectRow, selectedSession } from "../session/selection";
 import { setNewSessionProject, setProjectFilter } from "../sidebar/state";
-import { setBoardProjectFilter } from "../board/state";
+import { boardProjectFilter, setBoardProjectFilter } from "../board/state";
 
 // ------------------------------------------------------------------ switch
 
@@ -81,27 +82,35 @@ onWorkspaceChange(({ prev, next, reason }) => {
 
 // --------------------------------------------------------------- creating
 
-/** Ask for a name (checked inline against the protocol's rules), create the
- *  workspace and switch to it. The backend re-validates; a refusal (a clash
- *  with one the TUI just made, say) arrives as a toast. */
-export async function newWorkspace(): Promise<void> {
+/** Ask for a new workspace's name (checked inline against the protocol's
+ *  rules) and create it. Resolves to its stored name, or null if cancelled or
+ *  refused. The backend re-validates; a refusal (a clash with one the TUI just
+ *  made, say) arrives as a toast. The new workspace is expected and the
+ *  snapshot refreshed, so a switch to it right after sticks. */
+export async function createWorkspaceFromPrompt(): Promise<string | null> {
   const raw = await promptDialog("New workspace", "Workspace name", "Create", (value) => {
     const check = validateWorkspaceName(value, workspaces());
     return check.ok ? null : check.error;
   });
-  if (raw === null) return;
+  if (raw === null) return null;
   let name: string;
   try {
     name = await invoke<string>("create_workspace", { name: raw });
   } catch (e) {
     toast(`Couldn't create the workspace: ${e}`, "error");
-    return;
+    return null;
   }
   // A push built before the create could land after the switch and look like
   // the workspace vanished; holding it as expected keeps the switch.
   expectWorkspace(name);
   await refreshNow();
-  switchWorkspace(name);
+  return name;
+}
+
+/** Create a workspace (see createWorkspaceFromPrompt) and switch to it. */
+export async function newWorkspace(): Promise<void> {
+  const name = await createWorkspaceFromPrompt();
+  if (name !== null) switchWorkspace(name);
 }
 
 /** Workspace settings. The Settings modal gains a Workspaces tab later; until
@@ -114,40 +123,66 @@ function manageWorkspaces(): void {
 
 const countLabel = (n: number) => `${n} ${n === 1 ? "project" : "projects"}`;
 
-function menuItems(): MenuItem[] {
-  const active = activeWorkspace();
+/** The workspace rows of the chip's menu: a tick, project counts,
+ *  Cmd+Shift+N. `pick` is what a row does. The tick goes on `ticked` (the
+ *  active workspace unless told otherwise); `inert` rows do nothing (a
+ *  project's own workspace, when the menu is a drop target for it). */
+export function workspaceRows(
+  pick: (w: WorkspaceEntry) => void,
+  {
+    ticked = activeWorkspace(),
+    inert = () => false,
+  }: { ticked?: string | null; inert?: (w: WorkspaceEntry) => boolean } = {},
+): MenuItem[] {
   const projects = allGroups();
+  return workspaces().map(
+    (w, i): MenuItem => ({
+      label: w.label,
+      checked: w.name === ticked,
+      meta: countLabel(projectCount(projects, w.name)),
+      shortcut: workspaceShortcut(i),
+      disabled: inert(w) || undefined,
+      action: () => pick(w),
+    }),
+  );
+}
+
+function menuItems(): MenuItem[] {
   return [
     { header: "Workspaces" },
-    ...workspaces().map(
-      (w, i): MenuItem => ({
-        label: w.label,
-        checked: w.name === active,
-        meta: countLabel(projectCount(projects, w.name)),
-        shortcut: workspaceShortcut(i),
-        action: () => switchWorkspace(w.name),
-      }),
-    ),
+    ...workspaceRows((w) => switchWorkspace(w.name)),
     "separator",
     { label: "New workspace…", indent: true, action: () => void newWorkspace() },
     { label: "Manage workspaces…", indent: true, action: manageWorkspaces },
   ];
 }
 
-/** Open the workspace menu under the chip (the workspace_picker key). With
- *  only Main the chip is hidden, so it opens under the session count instead,
- *  which is still the way to create the first workspace from the keyboard. */
-export function openWorkspaceMenu(): void {
-  const chipShown = !tbWorkspace.classList.contains("hidden");
+/** Where a title-bar workspace menu opens: under the chip, or, with only Main
+ *  (the chip hidden), under the session count. */
+export function workspaceMenuAnchor(): HTMLElement {
+  return tbWorkspace.classList.contains("hidden") ? tbCount : tbWorkspace;
+}
+
+/** Open `items` as a workspace menu under the chip, the chip drawn open until
+ *  it closes. `onClose` runs after the chip is reset. */
+export function showWorkspaceMenu(items: MenuItem[], onClose?: () => void): void {
   tbWorkspace.classList.add("open");
   tbWorkspace.setAttribute("aria-expanded", "true");
-  showMenuBelow(chipShown ? tbWorkspace : tbCount, menuItems(), {
+  showMenuBelow(workspaceMenuAnchor(), items, {
     className: "workspace-menu",
     onClose: () => {
       tbWorkspace.classList.remove("open");
       tbWorkspace.setAttribute("aria-expanded", "false");
+      onClose?.();
     },
   });
+}
+
+/** Open the workspace menu under the chip (the workspace_picker key). With
+ *  only Main the chip is hidden, so it opens under the session count instead,
+ *  which is still the way to create the first workspace from the keyboard. */
+export function openWorkspaceMenu(): void {
+  showWorkspaceMenu(menuItems());
 }
 
 tbWorkspace.addEventListener("click", (e) => {
@@ -161,7 +196,9 @@ tbWorkspace.addEventListener("click", (e) => {
 
 /** The chip shows the active workspace once a second one exists. Every
  *  snapshot also re-checks the screen against the scope: a project moved to
- *  another workspace takes its cursor and its terminal with it. */
+ *  another workspace (from here or from the TUI) takes its cursor, its
+ *  terminals and any Board filter pick naming it with it. Its terminals leave the strip
+ *  but stay attached, as a switch leaves them. */
 function renderWorkspaces(): void {
   const list = workspaces();
   tbWorkspace.classList.toggle("hidden", !workspacesVisible(list));
@@ -169,6 +206,19 @@ function renderWorkspaces(): void {
   const selected = selectedSession();
   if (selected && !sessionInScope(selected)) selectRow(null);
   scopeTerminals();
+  scopeFilters();
+}
+
+/** Drop the Board's picks of projects the active workspace no longer has; if
+ *  none of its picks are left, fall back to every project rather than leave
+ *  an empty board nobody asked for. (A deliberate "Clear all" stays empty.) */
+function scopeFilters(): void {
+  const board = boardProjectFilter();
+  if (!board) return;
+  const ids = new Set(groups().map((g) => g.id));
+  if (![...board].some((id) => !ids.has(id))) return;
+  const kept = new Set([...board].filter((id) => ids.has(id)));
+  setBoardProjectFilter(kept.size ? kept : null);
 }
 
 registerView("workspaces", renderWorkspaces);
