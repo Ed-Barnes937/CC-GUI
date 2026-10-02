@@ -15,13 +15,30 @@
 // repeated requests into one paint is a worthwhile change, but a behavioural
 // one, and it isn't this.
 
-export type View = "workspaces" | "sidebar" | "board" | "titlebar" | "onboarding" | "tabs" | "commander";
+export type View =
+  | "workspaces"
+  | "sidebar"
+  | "board"
+  | "titlebar"
+  | "onboarding"
+  | "tabs"
+  | "commander"
+  | "settings";
 
 /** Redraw order for a full refresh. "workspaces" goes first: it drops a
  *  selection or a terminal the active workspace no longer shows, which the
  *  rest then draw without. The board's attention pill is built with its filter
  *  bar, so "titlebar" -- which fills that pill -- must follow it. */
-const ALL: readonly View[] = ["workspaces", "sidebar", "board", "titlebar", "onboarding", "tabs", "commander"];
+const ALL: readonly View[] = [
+  "workspaces",
+  "sidebar",
+  "board",
+  "titlebar",
+  "onboarding",
+  "tabs",
+  "commander",
+  "settings",
+];
 
 const renderers = new Map<View, () => void>();
 

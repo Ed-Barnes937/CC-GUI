@@ -99,6 +99,24 @@ export function validateWorkspaceName(raw: string, existing: WorkspaceEntry[], e
   return { ok: true, name };
 }
 
+/**
+ * The rules for Main's display label: protocol's `validate_workspace_label`
+ * (as a name, minus the reserved words: "Main" is its default) plus
+ * `set_workspace_defs`'s clash check against the named workspaces. The clash
+ * message names the workspace it clashes with, as the backend's does.
+ */
+export function validateWorkspaceLabel(raw: string, existing: WorkspaceEntry[]): NameCheck {
+  const name = raw.trim();
+  if (!name) return { ok: false, error: "workspace name must not be empty" };
+  if ([...name].length > MAX_WORKSPACE_NAME_CHARS) {
+    return { ok: false, error: `workspace name must be at most ${MAX_WORKSPACE_NAME_CHARS} characters` };
+  }
+  if (CONTROL.test(name)) return { ok: false, error: "workspace name must not contain control characters" };
+  const clash = existing.find((w) => w.name !== null && eqi(w.name, name));
+  if (clash) return { ok: false, error: `workspace "${clash.name}" is defined twice` };
+  return { ok: true, name };
+}
+
 // ---------------------------------------------------------- the active one
 
 const KEY_ACTIVE = "cc-active-workspace";
@@ -122,12 +140,13 @@ export function activeWorkspace(): string | null {
 
 /**
  * Why the active workspace changed: the user switched; boot applied the
- * startup choice; or the workspace vanished (deleted elsewhere) and the GUI
- * fell back to Main. Listeners that keep per-workspace state (view memory)
- * save the old one's only on a real switch -- at boot there's nothing on
- * screen yet to remember.
+ * startup choice; the workspace vanished (deleted elsewhere) and the GUI fell
+ * back to Main; or the active workspace was renamed here, so the same
+ * projects are on screen under a new name. Listeners that keep per-workspace
+ * state (view memory) save the old one's only on a real switch -- at boot
+ * there's nothing on screen yet to remember, and a rename moves it instead.
  */
-export type WorkspaceChangeReason = "switch" | "startup" | "vanished";
+export type WorkspaceChangeReason = "switch" | "startup" | "vanished" | "renamed";
 export type WorkspaceChange = { prev: string | null; next: string | null; reason: WorkspaceChangeReason };
 
 const listeners: ((change: WorkspaceChange) => void)[] = [];
@@ -173,12 +192,79 @@ export function effectiveWorkspace(
   return list.some((w) => w.name === wanted) || pending.has(wanted) ? wanted : null;
 }
 
-/** Run on every snapshot: drop expectations the list now confirms, and fall
- *  back to Main if the active workspace is gone (deleted from the TUI, say). */
+/** Run on every snapshot: drop expectations the list now confirms, fall back
+ *  to Main if the active workspace is gone (deleted from the TUI, say), and
+ *  drop the GUI's own state for workspaces that no longer exist. */
 export function reconcileActiveWorkspace(list: WorkspaceEntry[]): void {
   for (const name of [...expected]) if (list.some((w) => w.name === name)) expected.delete(name);
   const effective = effectiveWorkspace(active, list);
   if (effective !== active) setActiveWorkspace(effective, "vanished");
+  pruneWorkspaceState(list);
+}
+
+// ------------------------------------------------- state keyed by workspace
+
+/**
+ * GUI-owned state kept per workspace under workspaceKey(): view memory here,
+ * and anything else that is (a per-workspace theme, say). Core's rename and
+ * delete maintain only the TUI's own `[workspace_themes]`, so the GUI moves or
+ * drops its entries itself; each store registers once and every rename,
+ * delete and prune reaches it.
+ */
+export type WorkspaceKeyedState = {
+  /** Every key with an entry. */
+  keys(): string[];
+  /** Move the entry under `from` to `to` (replacing any there). */
+  move(from: string, to: string): void;
+  /** Forget the entry under `key`. */
+  drop(key: string): void;
+};
+
+const keyedStores: WorkspaceKeyedState[] = [];
+
+/** Have `store`'s entries follow renames and deletes. */
+export function registerWorkspaceState(store: WorkspaceKeyedState): void {
+  keyedStores.push(store);
+}
+
+/** Every registered store, view memory first. */
+function stores(): WorkspaceKeyedState[] {
+  return [viewStore, ...keyedStores];
+}
+
+/**
+ * After a successful rename of `from` to `to` (both names): move the GUI's
+ * state with it, and keep it on screen if it was. `wasActive` is whether it
+ * was active when the rename was sent -- a push that landed meanwhile may
+ * already have fallen back to Main, seeing `from` gone. `to` is expected
+ * until a snapshot lists it, so a stale push can't undo that either. Follow
+ * it with a fresh snapshot: a rename in place draws nothing itself, since the
+ * snapshot in hand still tags the projects with the old name.
+ */
+export function workspaceRenamed(from: string, to: string, wasActive: boolean): void {
+  if (from === to) return;
+  for (const store of stores()) store.move(workspaceKey(from), workspaceKey(to));
+  expectWorkspace(to);
+  if (!wasActive) return;
+  // Still showing it: the same projects, a new name. Fallen back to Main
+  // meanwhile: a real switch back.
+  setActiveWorkspace(to, active === from ? "renamed" : "switch");
+}
+
+/** After a successful delete of `name`: drop the GUI's state for it. The
+ *  caller has already left it if it was active. */
+export function workspaceDeleted(name: string): void {
+  for (const store of stores()) store.drop(workspaceKey(name));
+}
+
+/** Drop state for workspaces neither listed nor expected: renamed or deleted
+ *  elsewhere (the TUI), where only the name's disappearance is visible. Main's
+ *  entry is never dropped. */
+function pruneWorkspaceState(list: WorkspaceEntry[]): void {
+  const alive = new Set([MAIN_KEY, ...list.map((w) => workspaceKey(w.name)), ...expected]);
+  for (const store of stores()) {
+    for (const key of store.keys()) if (!alive.has(key)) store.drop(key);
+  }
 }
 
 // ---------------------------------------------------------- view memory
@@ -211,7 +297,11 @@ export function viewMemory(name: string | null): ViewMemory {
 
 /** Remember what workspace `name` is showing as it's left. */
 export function rememberView(name: string | null, memory: ViewMemory): void {
-  views = { ...views, [workspaceKey(name)]: memory };
+  writeViews({ ...views, [workspaceKey(name)]: memory });
+}
+
+function writeViews(next: Record<string, ViewMemory>): void {
+  views = next;
   try {
     localStorage.setItem(KEY_VIEW, JSON.stringify(views));
   } catch {
@@ -219,10 +309,28 @@ export function rememberView(name: string | null, memory: ViewMemory): void {
   }
 }
 
+// View memory follows renames and deletes like any other per-workspace state.
+const viewStore: WorkspaceKeyedState = {
+  keys: () => Object.keys(views),
+  move(from, to) {
+    if (!(from in views)) return;
+    const next = { ...views, [to]: views[from] };
+    delete next[from];
+    writeViews(next);
+  },
+  drop(key) {
+    if (!(key in views)) return;
+    const next = { ...views };
+    delete next[key];
+    writeViews(next);
+  },
+};
+
 /** Reset module state, re-reading localStorage. Tests only. */
 export function resetWorkspacesForTest(): void {
   active = readActive();
   views = readViews();
   expected.clear();
   listeners.length = 0;
+  keyedStores.length = 0;
 }

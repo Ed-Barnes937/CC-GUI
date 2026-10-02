@@ -67,7 +67,10 @@ export function cycleWorkspaces(forward: boolean): void {
 // vanished workspace has nothing to come back to); the new one's are restored
 // where they still exist. Filters naming the old workspace's projects would
 // leave the new one blank, so they reset, as the TUI drops its board filter.
+// A rename keeps the same projects on screen; the snapshot that carries it
+// redraws them (drawing before it lands would scope the old tags out of view).
 onWorkspaceChange(({ prev, next, reason }) => {
+  if (reason === "renamed") return;
   if (reason === "switch") rememberView(prev, { selected: selectedSession(), tab: activeTerm() });
   setProjectFilter(null);
   setNewSessionProject(null);
@@ -113,10 +116,9 @@ export async function newWorkspace(): Promise<void> {
   if (name !== null) switchWorkspace(name);
 }
 
-/** Workspace settings. The Settings modal gains a Workspaces tab later; until
- *  then this opens Settings. */
+/** Settings › Workspaces. */
 function manageWorkspaces(): void {
-  void openSettings();
+  void openSettings("workspaces");
 }
 
 // --------------------------------------------------------------- the menu
