@@ -262,7 +262,9 @@ export function chooseTheme(theme: Theme): void {
 
 /** Re-resolve and apply, but only while following the OS (mode === "system"). */
 export function followSystem(): void {
-  if (getMode() === "system") applyTheme(resolveTheme());
+  // Under a workspace override the flip changes nothing on screen, only the
+  // global theme the boot cache holds.
+  if (getMode() === "system") reapplyTheme();
 }
 
 /** Initialize from stored prefs + current OS appearance. Call once at boot. */

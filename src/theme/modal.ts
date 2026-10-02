@@ -226,6 +226,10 @@ export function openThemeModal(appearance?: Appearance): void {
   note?.manage.addEventListener("click", manage);
   function onKey(e: KeyboardEvent): void {
     e.stopPropagation(); // owns the keyboard while open
+    // Browsing from Manage takes focus back to the list it moves through.
+    const browsing = e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End" ||
+      (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey);
+    if (browsing && note && document.activeElement === note.manage) list.focus();
     if (e.key === "Escape") { e.preventDefault(); cancel(); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(Math.min(selected + 1, themes.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(Math.max(selected - 1, -1)); }

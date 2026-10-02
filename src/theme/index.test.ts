@@ -10,7 +10,6 @@ import {
   allThemes,
   applyTheme,
   currentTheme,
-  initTheme,
   resolveGlobalTheme,
   setMode,
   setWorkspaceTheme,
@@ -313,7 +312,6 @@ describe("per-workspace overrides", () => {
   });
 
   it("caches the override for the boot script only while it's on screen", () => {
-    initTheme();
     setWorkspaceTheme("OSS", "catppuccin-latte");
     setActiveWorkspace("OSS");
     expect(bootOverride()).toEqual({ appearance: "light", cssVars: LATTE.cssVars });

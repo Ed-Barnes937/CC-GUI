@@ -26,13 +26,14 @@ function themeBoot(): Plugin {
   // same workspace paints it. A launch into a different workspace (a pinned
   // startup one) can flash it once; see docs/theming.md.
   const script =
-    "try{var r=document.documentElement,a,o;" +
-    `var w=localStorage.getItem('${KEY_OVERRIDE_VARS}');` +
-    "if(w){w=JSON.parse(w);a=w.appearance==='light'?'light':'dark';o=w.cssVars;}else{" +
+    // The mode's appearance is set first, so a bad cache entry still leaves it.
+    "try{var r=document.documentElement,o;" +
     "var m=localStorage.getItem('cc-theme-mode')||'system';" +
     "var d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);" +
-    "a=d?'dark':'light';var v=localStorage.getItem('cc-theme-vars-'+a);if(v)o=JSON.parse(v);}" +
-    "r.dataset.appearance=a;" +
+    "var a=d?'dark':'light';r.dataset.appearance=a;" +
+    `var w=localStorage.getItem('${KEY_OVERRIDE_VARS}');` +
+    "if(w){w=JSON.parse(w);r.dataset.appearance=w.appearance==='light'?'light':'dark';o=w.cssVars;}" +
+    "else{var v=localStorage.getItem('cc-theme-vars-'+a);if(v)o=JSON.parse(v);}" +
     "if(o){for(var k in o)r.style.setProperty('--'+k,o[k]);}" +
     "}catch(e){}";
   return {
