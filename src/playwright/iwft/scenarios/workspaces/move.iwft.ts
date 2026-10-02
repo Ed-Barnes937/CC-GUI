@@ -169,6 +169,10 @@ test.describe("from the keyboard and the palette", () => {
     const sidebar = new SidebarPageObject(page);
     const palette = new PalettePageObject(page);
     await sidebar.row("fix login bug").click();
+    // The click attaches the session and focuses its terminal, which keeps
+    // Ctrl chords for the shell (Ctrl+K is kill-line), so on Linux the palette
+    // key only reaches the app once focus is off the terminal.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await palette.open();
     await palette.type("Move project");
     await palette.clickRow("Move project to workspace…");
