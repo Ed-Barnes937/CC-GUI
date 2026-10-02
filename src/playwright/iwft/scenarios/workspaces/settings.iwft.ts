@@ -91,6 +91,10 @@ test.describe("with three workspaces", () => {
       await tab.addInput().pressSequentially("x");
       await expect(tab.errors()).toHaveCount(0); // a stale complaint goes on edit
 
+      await tab.addInput().press("Escape"); // clears the field, not the pane
+      await expect(tab.addInput()).toHaveValue("");
+      expect(await tab.isOpen()).toBe(true);
+
       await tab.add("  Side ");
       await expect(tab.names()).toHaveText(["Main", "Work", "OSS", "Side"]);
       await expect(tab.addInput()).toHaveValue("");
@@ -117,6 +121,26 @@ test.describe("with three workspaces", () => {
   });
 
   test.describe("renaming", () => {
+    test("a name the backend refuses surfaces its message", async ({ workspaces, page }) => {
+      const tab = await openTab(page);
+      await page.evaluate(() => window.__CC_SIM__.handle("create_workspace", { name: "Side" }));
+      await tab.rename("OSS", "side");
+      await expect(workspaces.lastToast()).toHaveText(`Couldn't rename the workspace: workspace "side" is defined twice`);
+      await expect(tab.renameInput()).toHaveValue("side"); // still open, to fix
+      expect((await workspaces.storedConfig()).defs).toEqual(["Work", "OSS", "Side"]);
+      expect(await workspaces.workspaceOf("dotfiles")).toBe("OSS");
+    });
+
+    test("closing Settings mid-rename applies nothing", async ({ workspaces, page }) => {
+      const tab = await openTab(page);
+      await tab.startRename("OSS", "Open");
+      await tab.close();
+      expect((await workspaces.storedConfig()).defs).toEqual(["Work", "OSS"]);
+      await tab.openFromChip();
+      await expect(tab.renameInput()).toHaveCount(0);
+      await expect(tab.names()).toHaveText(["Main", "Work", "OSS"]);
+    });
+
     test("renames inline, re-tagging its projects", async ({ workspaces, page }) => {
       const tab = await openTab(page);
       await tab.rename("OSS", "Open source");
@@ -231,6 +255,14 @@ test.describe("with three workspaces", () => {
       expect(await workspaces.workspaceOf("web-app")).toBeNull();
     });
 
+    test("says so when nothing moves", async ({ workspaces: _booted, page }) => {
+      const tab = await openTab(page);
+      await tab.add("Side");
+      await expect(tab.names()).toHaveText(["Main", "Work", "OSS", "Side"]);
+      await tab.startDelete("Side");
+      await expect(tab.confirmText()).toHaveText('Delete workspace "Side"?\nIt has no projects. No sessions are stopped.');
+    });
+
     test("uses Main's label and singular copy", async ({ workspaces, page }) => {
       await workspaces.fromTui("set_main_workspace_label", { label: "Home" });
       const tab = await openTab(page);
@@ -286,6 +318,14 @@ test.describe("with three workspaces", () => {
       expect((await workspaces.storedConfig()).main).toBe("Home");
       await tab.close();
       await expect(workspaces.chipLabel()).toHaveText("Home");
+    });
+
+    test("closing Settings mid-edit applies nothing", async ({ workspaces, page }) => {
+      const tab = await openTab(page);
+      await tab.mainLabelInput().fill("Home");
+      await tab.close();
+      expect((await workspaces.storedConfig()).main).toBeNull();
+      await expect(workspaces.chipLabel()).toHaveText("Main");
     });
 
     test("checks the label inline and Escape puts it back", async ({ workspaces, page }) => {

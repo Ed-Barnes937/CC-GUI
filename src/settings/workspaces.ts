@@ -119,10 +119,11 @@ async function addWorkspace(): Promise<void> {
   await settle();
 }
 
-// One edit at a time per field: Enter, then the blur or change it causes,
-// must not send it twice.
+// One edit in flight at a time per control: a second Enter (or arrow) while
+// the first is still on its way must not send it twice.
 let renameBusy = false;
 let mainBusy = false;
+let reorderBusy = false;
 
 async function commitRename(): Promise<void> {
   if (!renaming || renameBusy) return;
@@ -140,7 +141,8 @@ async function commitRename(): Promise<void> {
   renameBusy = true;
   try {
     if (name === null) {
-      // Main's name is its label.
+      // Main's name is its label: its row's ✎ and the Main label field (both
+      // in the handoff) set the same thing.
       await invoke("set_main_workspace_label", { label: check.name });
     } else {
       const wasActive = activeWorkspace() === name;
@@ -189,15 +191,19 @@ async function setStartup(value: string): Promise<void> {
 
 /** Move the named workspace `from` to position `to` among the named ones
  *  (Main always stays first). */
-async function reorder(from: number, to: number): Promise<void> {
+async function reorder(from: number, to: number, focusAfter?: string): Promise<void> {
   const names = workspaces().flatMap((w) => (w.name === null ? [] : [w.name]));
-  if (to < 0 || to >= names.length || from === to) return;
+  if (reorderBusy || to < 0 || to >= names.length || from === to) return;
   const [moved] = names.splice(from, 1);
   names.splice(to, 0, moved);
+  reorderBusy = true;
   try {
     await invoke("reorder_workspaces", { names });
+    if (focusAfter) setPendingFocusSelector(focusAfter);
   } catch (e) {
     toast(`Couldn't reorder the workspaces: ${e}`, "error");
+  } finally {
+    reorderBusy = false;
   }
   await settle();
 }
@@ -216,11 +222,12 @@ async function deleteWorkspace(w: WorkspaceEntry): Promise<void> {
   if (name === null) return; // Main can't be deleted
   const ok = await confirmDialog(deleteMessage(w.label, projectsIn(name), workspaces()[0].label), "Delete");
   if (!ok) return;
-  // Leave it first, so its view is remembered and dropped with it rather than
-  // the screen emptying under a vanished workspace.
-  if (activeWorkspace() === name) setActiveWorkspace(null, "switch");
   try {
     await invoke<boolean>("delete_workspace", { name });
+    // Leave it (if a push hasn't already) before its snapshot lands, so the
+    // screen goes to Main by a switch rather than emptying under a vanished
+    // workspace; then its remembered view is dropped with it.
+    if (activeWorkspace() === name) setActiveWorkspace(null, "switch");
     workspaceDeleted(name);
     if (renaming?.name === name) renaming = undefined;
   } catch (e) {
@@ -378,14 +385,9 @@ function renameInput(w: WorkspaceEntry): HTMLInputElement {
       redrawPanel();
     }
   });
-  // Clicking away keeps what was typed, like Enter. A rebuild that replaces
-  // the field (a snapshot) doesn't count: the draft survives it. Checked a
-  // tick later, once a rebuild has settled whether this field is still the one.
-  input.addEventListener("blur", () => {
-    setTimeout(() => {
-      if (input.isConnected && document.activeElement !== input) void commitRename();
-    }, 0);
-  });
+  // Only Enter applies. Clicking away keeps the draft open rather than
+  // committing it: that click may be the pane's Cancel or its backdrop, and a
+  // rename re-tags projects at once, with no Save to back out of.
   return input;
 }
 
@@ -411,6 +413,14 @@ function addRow(): HTMLElement {
     if (e.key === "Enter") {
       e.preventDefault();
       void addWorkspace();
+    } else if (e.key === "Escape" && input.value) {
+      // Clear the field, rather than closing the pane.
+      e.preventDefault();
+      e.stopPropagation();
+      addDraft = "";
+      delete errors.add;
+      setPendingFocusSelector(`#${ID.add}`);
+      redrawPanel();
     }
   });
   const add = document.createElement("button");
@@ -480,7 +490,7 @@ function startupField(list: WorkspaceEntry[]): HTMLElement {
 function mainLabelField(main: WorkspaceEntry): HTMLElement {
   const row = document.createElement("div");
   row.className = "settings-field";
-  const head = fieldHead(ID.main, "Main label", "Display name for the built-in workspace that holds untagged projects.");
+  const head = fieldHead(ID.main, "Main label", "Display name for the built-in workspace that holds untagged projects. Press Enter to apply.");
   const input = noTextAssist(document.createElement("input"));
   input.type = "text";
   input.id = ID.main;
@@ -507,7 +517,6 @@ function mainLabelField(main: WorkspaceEntry): HTMLElement {
       redrawPanel();
     }
   });
-  input.addEventListener("change", () => void commitMainLabel());
   if (errors.main) head.appendChild(errorLine(errors.main));
   row.append(head, input);
   return row;
@@ -526,8 +535,7 @@ function wireReorder(handle: HTMLElement, row: HTMLElement, at: number, box: HTM
     const to = at + step;
     if (to < 0 || to >= named) return;
     // Focus follows the row to its new place (row index = named index + 1).
-    setPendingFocusSelector(`#${ID.handle(to + 1)}`);
-    void reorder(at, to);
+    void reorder(at, to, `#${ID.handle(to + 1)}`);
   });
 
   draggable(handle, () => {
