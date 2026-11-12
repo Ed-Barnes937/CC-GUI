@@ -147,6 +147,23 @@ test("Cmd+Click opens a URL externally; a plain click does not", async ({ termin
     .toContain("https://example.com/foo");
 });
 
+test("Opt+arrows send the bytes xterm 5 sent for the platform", async ({ terminal, page }) => {
+  await terminal.attach("fix login bug");
+  await terminal.pressInTerminal("Alt+ArrowLeft");
+  await terminal.pressInTerminal("Alt+ArrowRight");
+  await terminal.pressInTerminal("Alt+ArrowUp");
+  await terminal.pressInTerminal("Alt+ArrowDown");
+
+  // macOS: readline's word back / forward (ESC b / ESC f), and Up/Down left as
+  // the raw Alt arrows. Elsewhere all four become the Ctrl+arrow sequences. CI
+  // runs this on Linux, so derive the bytes from the platform.
+  const isMac = await page.evaluate(() => navigator.platform.toLowerCase().includes("mac"));
+  const expected = isMac
+    ? ["\x1bb", "\x1bf", "\x1b[1;3A", "\x1b[1;3B"]
+    : ["\x1b[1;5D", "\x1b[1;5C", "\x1b[1;5A", "\x1b[1;5B"];
+  await expect.poll(() => terminal.ptyWrites(TMUX)).toEqual(expected);
+});
+
 test.describe("tab reorder", () => {
   test.use({
     seed: {

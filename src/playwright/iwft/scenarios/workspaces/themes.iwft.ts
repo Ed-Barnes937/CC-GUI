@@ -69,14 +69,15 @@ test("switching to a workspace with a theme applies it, and switching away rever
   // The terminal follows too.
   const terminal = new TerminalPageObject(page);
   await terminal.attach("nvim lsp config");
-  const viewport = page.locator("#terminals .term-container.active .xterm-viewport");
-  await expect(viewport).toHaveCSS("background-color", rgb(TOKYO.terminal.background!));
+  // xterm paints the theme background on its scroll container, behind the text.
+  const background = page.locator("#terminals .term-container.active .xterm-scrollable-element");
+  await expect(background).toHaveCSS("background-color", rgb(TOKYO.terminal.background!));
 
   await workspaces.switchTo("Main");
   await expect.poll(() => cssVar(page, "--accent")).toBe(MOCHA.cssVars.accent);
   await workspaces.switchTo("OSS");
   await expect.poll(() => cssVar(page, "--accent")).toBe(TOKYO.cssVars.accent);
-  await expect(viewport).toHaveCSS("background-color", rgb(TOKYO.terminal.background!));
+  await expect(background).toHaveCSS("background-color", rgb(TOKYO.terminal.background!));
 });
 
 test("setting the active workspace's theme applies at once; Global theme reverts", async ({ workspaces, page }) => {

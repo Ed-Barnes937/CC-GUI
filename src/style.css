@@ -3559,6 +3559,13 @@ body.resizing .panel-resizer {
   overflow: hidden;
 }
 
+/* xterm 6 paints the theme background on its scroll container and leaves the
+   viewport underneath on xterm.css's #000, which bleeds through the anti-aliased
+   rounded corners as a dark fringe. Let the layer under it show instead. */
+.term-surface .xterm .xterm-viewport {
+  background-color: transparent;
+}
+
 #placeholder {
   height: 100%;
   display: flex;
