@@ -147,6 +147,21 @@ test("Cmd+Click opens a URL externally; a plain click does not", async ({ termin
     .toContain("https://example.com/foo");
 });
 
+test("Opt+Left/Right send the platform's word-jump bytes, not the raw Alt arrows", async ({
+  terminal,
+  page,
+}) => {
+  await terminal.attach("fix login bug");
+  await terminal.pressInTerminal("Alt+ArrowLeft");
+  await terminal.pressInTerminal("Alt+ArrowRight");
+
+  // readline's word back / forward: ESC b / ESC f on macOS, Ctrl+Left/Right
+  // elsewhere. CI runs this on Linux, so derive the bytes from the platform.
+  const isMac = await page.evaluate(() => navigator.platform.toLowerCase().includes("mac"));
+  const expected = isMac ? ["\x1bb", "\x1bf"] : ["\x1b[1;5D", "\x1b[1;5C"];
+  await expect.poll(() => terminal.ptyWrites(TMUX)).toEqual(expected);
+});
+
 test.describe("tab reorder", () => {
   test.use({
     seed: {

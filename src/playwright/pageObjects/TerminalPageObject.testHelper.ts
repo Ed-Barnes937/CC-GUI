@@ -85,6 +85,28 @@ export class TerminalPageObject extends AppPageObject {
     );
   }
 
+  /** Press a key chord into the active terminal, as a user typing into it. */
+  pressInTerminal(chord: string): Promise<void> {
+    return this.step(`pressInTerminal: ${chord}`, async () => {
+      await expect(
+        this.page.locator("#terminals .term-container.active .xterm-helper-textarea"),
+      ).toBeFocused();
+      await this.page.keyboard.press(chord);
+    });
+  }
+
+  /** Data the frontend wrote to one session's PTY via write_pty, in order. */
+  ptyWrites(name: string): Promise<string[]> {
+    return this.page.evaluate(
+      (n) =>
+        window.__CC_SIM__
+          .getPtyWrites()
+          .filter((w) => w.tmuxSession === n)
+          .map((w) => w.data),
+      name,
+    );
+  }
+
   closeWithCmdW(): Promise<void> {
     return this.step("closeWithCmdW", () => this.page.keyboard.press("Meta+w"));
   }
