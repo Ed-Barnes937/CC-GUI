@@ -29,7 +29,7 @@ import {
 } from "./surface";
 import { clearDropMarker, showDropMarker, tabBeforeX, tabNewBtn, updateTabGlyphs } from "./tabs";
 import { resetRestartBudget } from "./restart";
-import { wordJumpBytes } from "./wordJump";
+import { altArrowBytes } from "./altArrow";
 
 export async function openTerminal(session: SessionRow): Promise<void> {
   // A deliberate attach resets the crash-loop guard for this session.
@@ -216,12 +216,13 @@ export async function attachTerminal(
       void invoke("write_pty", { tmuxSession: name, data: "\n" });
       return false;
     }
-    // Opt+Left/Right: word back / forward (see wordJump.ts). Sent as user
-    // input so it scrolls to the bottom and reaches onData, as xterm 5 did.
-    const wordJump = wordJumpBytes(e, navigator.platform.toLowerCase().includes("mac"));
-    if (wordJump !== null) {
+    // Opt+arrows: the bytes xterm 5 sent, e.g. word back / forward for
+    // Left/Right (see altArrow.ts). Sent as user input so it scrolls to the
+    // bottom and reaches onData, as xterm 5 did.
+    const altArrow = altArrowBytes(e, navigator.platform.toLowerCase().includes("mac"));
+    if (altArrow !== null) {
       e.preventDefault();
-      term.input(wordJump);
+      term.input(altArrow);
       return false;
     }
     if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) {
