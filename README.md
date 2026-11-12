@@ -132,6 +132,7 @@ Press `?` in the app (outside a text input) for the full, always-current list.
 | Markdown viewer: fuzzy file picker, changed docs first (`↑`/`↓` pick, `Enter` opens) | `/` or click the file name |
 | Terminal: switch to this session's shell | `Ctrl+\` |
 | Terminal: cursor to line start / end | `Cmd+←` / `Cmd+→` |
+| Terminal: cursor back / forward one word | `Opt/Alt+←` / `Opt/Alt+→` |
 | Terminal: delete to line start | `Cmd+Backspace` |
 | Terminal: newline without submitting | `Shift+Enter` |
 | Terminal: copy selection (auto-clears highlight) | select text |

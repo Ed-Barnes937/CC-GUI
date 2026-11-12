@@ -98,6 +98,7 @@ const HELP_SECTIONS: [string, [string, string][]][] = [
     [
       ["Ctrl+\\", "Switch to this session's shell"],
       ["Cmd+←/→", "Cursor to line start / end"],
+      ["Opt/Alt+←/→", "Cursor back / forward one word"],
       ["Cmd+Backspace", "Delete to line start"],
       ["Shift+Enter", "Insert a newline without submitting"],
       ["Select text", "Copies to clipboard and clears the highlight"],
