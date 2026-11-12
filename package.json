@@ -33,7 +33,7 @@
     "@xterm/xterm": "^5.5.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.65.0",
     "@tauri-apps/cli": "^2",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
